@@ -1,0 +1,53 @@
+{
+  "name": "@sebsastianek/typeorm-i18n",
+  "version": "1.0.0",
+  "description": "TypeORM extension for multilingual i18n support with strong typing",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "scripts": {
+    "build": "tsc",
+    "watch": "tsc --watch",
+    "test": "DB_TYPE=sqlite jest",
+    "test:watch": "jest --watch",
+    "test:coverage": "jest --coverage",
+    "test:sqlite": "DB_TYPE=sqlite jest",
+    "test:pg": "DB_TYPE=postgres jest",
+    "test:mysql": "DB_TYPE=mysql jest",
+    "test:all": "./test-all.sh",
+    "docker:test:up": "docker compose -f docker-compose.test.yml up -d",
+    "docker:test:down": "docker compose -f docker-compose.test.yml down -v",
+    "docker:test:logs": "docker compose -f docker-compose.test.yml logs -f",
+    "prepublishOnly": "npm run build"
+  },
+  "keywords": [
+    "typeorm",
+    "i18n",
+    "internationalization",
+    "multilingual",
+    "typescript"
+  ],
+  "author": "Sebastian Astanek",
+  "license": "MIT",
+  "peerDependencies": {
+    "typeorm": ">=0.3.0",
+    "reflect-metadata": "^0.1.13 || ^0.2.0"
+  },
+  "devDependencies": {
+    "@types/jest": "^29.5.0",
+    "@types/node": "^20.0.0",
+    "jest": "^29.5.0",
+    "ts-jest": "^29.1.0",
+    "ts-node": "^10.9.0",
+    "typeorm": "^0.3.0",
+    "typescript": "^5.0.0",
+    "reflect-metadata": "^0.2.0",
+    "better-sqlite3": "^9.0.0",
+    "pg": "^8.11.0",
+    "mysql2": "^3.6.0"
+  },
+  "files": [
+    "dist",
+    "README.md",
+    "LICENSE"
+  ]
+}
