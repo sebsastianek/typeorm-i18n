@@ -15,12 +15,6 @@ TypeORM extension for multilingual database support with strong typing and autom
 - Multiple database support - SQLite, PostgreSQL, MySQL, and more
 - Decorator-based API
 
-## Installation
-
-```bash
-npm install @sebsastianek/typeorm-i18n
-```
-
 ## Quick Start
 
 ### 1. Configure Global Settings (Optional but Recommended)
