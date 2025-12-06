@@ -7,6 +7,8 @@
  * - Different data types (string, number, Buffer)
  * - Helper function (getTranslation with fallback)
  * - Configuration management
+ * - Type-safe queries with i18nWhere
+ * - Ergonomic QueryBuilder methods
  */
 
 import { DataSource, Entity, PrimaryGeneratedColumn, Column } from 'typeorm';
@@ -17,6 +19,8 @@ import {
   I18nValue,
   I18nSubscriber,
   getTranslation,
+  getI18nRepository,
+  i18nWhere,
 } from '../src';
 
 // Set global configuration
@@ -188,8 +192,39 @@ async function main() {
   console.log('Fallback translation (es -> en):', fallbackTranslation);
   console.log();
 
-  // ===== Example 4: Configuration management =====
-  console.log('=== Example 4: Configuration Management ===');
+  // ===== Example 4: Ergonomic QueryBuilder methods =====
+  console.log('=== Example 4: Ergonomic QueryBuilder Methods ===');
+
+  const repo = getI18nRepository(Article, dataSource);
+  repo.setLanguage('es');
+
+  // Using whereLanguage instead of manual column mapping
+  const spanishArticles = await repo
+    .createQueryBuilder('article')
+    .whereLanguage('title', '=', 'Hola Mundo')
+    .getMany();
+  console.log(`Found ${spanishArticles.length} article(s) with whereLanguage`);
+
+  // Using orderByLanguage
+  const orderedArticles = await repo
+    .createQueryBuilder('article')
+    .orderByLanguage('title', 'ASC')
+    .getMany();
+  console.log(`Ordered ${orderedArticles.length} article(s) by Spanish title\n`);
+
+  // ===== Example 5: Type-safe queries with i18nWhere =====
+  console.log('=== Example 5: Type-Safe Queries ===');
+
+  repo.setLanguage('es');
+  const articles = await repo.find({
+    where: i18nWhere<Article>({ title: 'Hola Mundo' }),
+  });
+  console.log(`Found ${articles.length} article(s) using i18nWhere`);
+  console.log('Title (es):', articles[0]?.title.es);
+  console.log();
+
+  // ===== Example 6: Configuration management =====
+  console.log('=== Example 6: Configuration Management ===');
 
   console.log('Current global config:', {
     languages: ['en', 'es', 'fr'],

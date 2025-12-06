@@ -109,3 +109,94 @@ export interface I18nColumnMetadata<T extends string = string> {
   propertyName: string;
   options: ResolvedI18nColumnOptions<T>;
 }
+
+/**
+ * Utility type that converts I18nValue properties to their base value type.
+ * This allows type-safe queries without needing `as any`.
+ *
+ * @template T - The entity type
+ *
+ * @example
+ * ```typescript
+ * interface Product {
+ *   id: number;
+ *   name: I18nValue<'en' | 'es', string>;
+ *   price: number;
+ * }
+ *
+ * // I18nWhere<Product> becomes:
+ * // {
+ * //   id?: number;
+ * //   name?: string;
+ * //   price?: number;
+ * // }
+ * ```
+ */
+export type I18nWhere<T> = {
+  [K in keyof T]?: T[K] extends I18nValue<any, infer V>
+    ? V | null
+    : T[K] extends object
+      ? T[K] | null
+      : T[K] | null;
+};
+
+/**
+ * Creates a type-safe where clause for I18n entities.
+ * Use this helper to avoid `as any` type assertions when querying I18n columns.
+ *
+ * @template T - The entity type
+ * @param where - The where clause with flat values for I18n columns
+ * @returns The same object, properly typed for use in find operations
+ *
+ * @example
+ * ```typescript
+ * import { i18nWhere } from '@sebsastianek/typeorm-i18n';
+ *
+ * // Instead of:
+ * const products = await repo.find({
+ *   where: { name: 'Laptop' } as any  // Requires 'as any'
+ * });
+ *
+ * // Use:
+ * const products = await repo.find({
+ *   where: i18nWhere<Product>({ name: 'Laptop' })  // Type-safe!
+ * });
+ *
+ * // Also works with multiple conditions:
+ * const products = await repo.find({
+ *   where: i18nWhere<Product>({
+ *     name: 'Laptop',
+ *     isActive: true,
+ *     price: 999
+ *   })
+ * });
+ * ```
+ */
+export function i18nWhere<T>(where: I18nWhere<T>): any {
+  return where;
+}
+
+/**
+ * Creates a type-safe array of where clauses for I18n entities.
+ * Use this when you need OR conditions across multiple criteria.
+ *
+ * @template T - The entity type
+ * @param whereClauses - Array of where clauses
+ * @returns The same array, properly typed for use in find operations
+ *
+ * @example
+ * ```typescript
+ * import { i18nWhereMany } from '@sebsastianek/typeorm-i18n';
+ *
+ * // Find products where name is 'Laptop' OR 'Mouse'
+ * const products = await repo.find({
+ *   where: i18nWhereMany<Product>([
+ *     { name: 'Laptop' },
+ *     { name: 'Mouse' }
+ *   ])
+ * });
+ * ```
+ */
+export function i18nWhereMany<T>(whereClauses: I18nWhere<T>[]): any[] {
+  return whereClauses;
+}

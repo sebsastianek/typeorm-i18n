@@ -2,10 +2,12 @@
  * Language Context Repository Example
  *
  * This example demonstrates how to use I18nRepository to:
- * - Set a current language context
+ * - Set a current language context (case-insensitive)
  * - Query automatically using the correct language column
  * - Switch languages dynamically
  * - Use QueryBuilder with language context
+ * - Use ergonomic QueryBuilder methods (whereLanguage, orderByLanguage, etc.)
+ * - Use type-safe i18nWhere helper
  */
 
 import { DataSource, Entity, PrimaryGeneratedColumn, Column } from 'typeorm';
@@ -15,6 +17,8 @@ import {
   I18nValue,
   I18nSubscriber,
   getI18nRepository,
+  i18nWhere,
+  i18nWhereMany,
 } from '../src';
 
 type SupportedLanguages = 'en' | 'es' | 'fr';
@@ -87,9 +91,9 @@ async function main() {
   // Create I18nRepository with language context
   const repo = getI18nRepository(Product, dataSource);
 
-  console.log('=== Example 1: Querying in English (default) ===');
+  console.log('=== Example 1: Querying with type-safe i18nWhere ===');
   const englishProducts = await repo.find({
-    where: { name: 'Laptop' } as any,
+    where: i18nWhere<Product>({ name: 'Laptop' }),
   });
   console.log(`Found ${englishProducts.length} product(s) with name "Laptop"`);
   console.log('Product:', englishProducts[0]?.name.en, '\n');
@@ -99,7 +103,7 @@ async function main() {
   console.log('Current language:', repo.getLanguage());
 
   const spanishProducts = await repo.find({
-    where: { name: 'Ratón' } as any,
+    where: i18nWhere<Product>({ name: 'Ratón' }),
   });
   console.log(`Found ${spanishProducts.length} product(s) with name "Ratón"`);
   console.log('Product English name:', spanishProducts[0]?.name.en);
@@ -110,7 +114,7 @@ async function main() {
   console.log('Current language:', repo.getLanguage());
 
   const frenchProducts = await repo.find({
-    where: { name: 'Clavier' } as any,
+    where: i18nWhere<Product>({ name: 'Clavier' }),
   });
   console.log(`Found ${frenchProducts.length} product(s) with name "Clavier"`);
   console.log('Product English name:', frenchProducts[0]?.name.en);
@@ -119,56 +123,90 @@ async function main() {
   console.log('=== Example 4: Method chaining ===');
   const result = await repo
     .setLanguage('es')
-    .find({ where: { name: 'Teclado' } as any });
+    .find({ where: i18nWhere<Product>({ name: 'Teclado' }) });
   console.log(`Found ${result.length} product(s) with chained setLanguage()`);
   console.log('Product:', result[0]?.name.es, '\n');
 
-  console.log('=== Example 5: Using with findOne ===');
-  repo.setLanguage('fr');
-  const oneProduct = await repo.findOne({
-    where: { name: 'Souris' } as any,
+  console.log('=== Example 5: Using i18nWhereMany for OR conditions ===');
+  repo.setLanguage('es');
+  const multiProducts = await repo.find({
+    where: i18nWhereMany<Product>([{ name: 'Portátil' }, { name: 'Ratón' }]),
   });
-  console.log('Found product:', oneProduct?.name.fr);
-  console.log('Price:', oneProduct?.price, '\n');
+  console.log(`Found ${multiProducts.length} products matching "Portátil" OR "Ratón"`);
+  multiProducts.forEach((p: Product) => {
+    console.log('-', p.name.es);
+  });
+  console.log();
 
   console.log('=== Example 6: Mixed conditions (i18n + regular columns) ===');
   repo.setLanguage('es');
   const filtered = await repo.find({
-    where: {
+    where: i18nWhere<Product>({
       category: 'Electronics',
-      name: 'Portátil' as any,
-    },
+      name: 'Portátil',
+    }),
   });
   console.log(`Found ${filtered.length} Electronics with name "Portátil"`);
   console.log('Product:', filtered[0]?.name.es, '\n');
 
-  console.log('=== Example 7: Clear language (revert to default) ===');
-  repo.clearLanguage();
-  console.log('Current language:', repo.getLanguage());
-  const defaultProducts = await repo.find({
-    where: { name: 'Mouse' } as any,
-  });
-  console.log(`Found ${defaultProducts.length} product(s) with name "Mouse"`);
-  console.log('Product:', defaultProducts[0]?.name.en, '\n');
-
-  console.log('=== Example 8: Using QueryBuilder with getLanguageColumn ===');
+  console.log('=== Example 7: Ergonomic QueryBuilder - whereLanguage ===');
   repo.setLanguage('es');
-
-  const nameColumn = repo.getLanguageColumn('name');
-  console.log('Language column for "name":', nameColumn);
 
   const qbProducts = await repo
     .createQueryBuilder('product')
-    .where(`product.${nameColumn} LIKE :search`, { search: '%át%' })
+    .whereLanguage('name', 'LIKE', '%át%')
     .getMany();
 
-  console.log(`Found ${qbProducts.length} product(s) with QueryBuilder`);
+  console.log(`Found ${qbProducts.length} product(s) with whereLanguage`);
   qbProducts.forEach((p: Product) => {
     console.log('-', p.name.es);
   });
   console.log();
 
-  console.log('=== Example 9: getLanguageColumn for different languages ===');
+  console.log('=== Example 8: QueryBuilder - andWhereLanguage & orWhereLanguage ===');
+  repo.setLanguage('es');
+
+  const complexQuery = await repo
+    .createQueryBuilder('product')
+    .whereLanguage('name', '=', 'Portátil')
+    .orWhereLanguage('name', '=', 'Ratón')
+    .getMany();
+
+  console.log(`Found ${complexQuery.length} products with OR condition`);
+  complexQuery.forEach((p: Product) => {
+    console.log('-', p.name.es);
+  });
+  console.log();
+
+  console.log('=== Example 9: QueryBuilder - orderByLanguage ===');
+  repo.setLanguage('es');
+
+  const orderedProducts = await repo
+    .createQueryBuilder('product')
+    .orderByLanguage('name', 'ASC')
+    .getMany();
+
+  console.log('Products ordered by Spanish name:');
+  orderedProducts.forEach((p: Product) => {
+    console.log('-', p.name.es);
+  });
+  console.log();
+
+  console.log('=== Example 10: Traditional getLanguageColumn approach ===');
+  repo.setLanguage('es');
+
+  const nameColumn = repo.getLanguageColumn('name');
+  console.log('Language column for "name":', nameColumn);
+
+  const traditionalQb = await repo
+    .createQueryBuilder('product')
+    .where(`product.${nameColumn} LIKE :search`, { search: '%át%' })
+    .getMany();
+
+  console.log(`Found ${traditionalQb.length} product(s) with traditional approach`);
+  console.log();
+
+  console.log('=== Example 11: getLanguageColumn for different languages ===');
   console.log('English (default) - name column:', repo.setLanguage('en').getLanguageColumn('name'));
   console.log('Spanish - name column:', repo.setLanguage('es').getLanguageColumn('name'));
   console.log('French - name column:', repo.setLanguage('fr').getLanguageColumn('name'));

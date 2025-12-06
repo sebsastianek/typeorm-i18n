@@ -3,6 +3,7 @@ import { I18nColumnOptions } from './types';
 import { LANGUAGE_DELIMITER } from './constants';
 import { i18nMetadataStorage } from './metadata';
 import { getI18nConfig } from './config';
+import { normalizeLanguageCode, normalizeLanguageCodes } from './language-utils';
 
 /**
  * Generates the column name for a specific language translation.
@@ -56,8 +57,15 @@ export function I18nColumn<T extends string>(
     const globalConfig = getI18nConfig();
 
     // Merge global config with column-level config (column-level has priority)
-    const languages = options.languages ?? (globalConfig.languages as readonly T[] | undefined);
-    const default_language = options.default_language ?? (globalConfig.default_language as T | undefined);
+    // Normalize language codes to lowercase for consistent handling
+    const rawLanguages = options.languages ?? (globalConfig.languages as readonly T[] | undefined);
+    const rawDefaultLanguage = options.default_language ?? (globalConfig.default_language as T | undefined);
+
+    // Normalize language codes to lowercase
+    const languages = rawLanguages ? normalizeLanguageCodes(rawLanguages) as T[] : undefined;
+    const default_language = rawDefaultLanguage
+      ? (normalizeLanguageCode(rawDefaultLanguage) as T)
+      : undefined;
 
     // Validate i18n-specific options
     if (!languages || languages.length === 0) {

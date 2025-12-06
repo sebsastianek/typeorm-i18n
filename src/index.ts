@@ -9,8 +9,11 @@
  */
 
 // Export types
-export type { I18nValue, I18nColumnOptions, I18nColumnMetadata } from './types';
+export type { I18nValue, I18nColumnOptions, I18nColumnMetadata, I18nWhere } from './types';
 export type { I18nGlobalConfig } from './config';
+
+// Export type helpers
+export { i18nWhere, i18nWhereMany } from './types';
 
 // Export decorator
 export { I18nColumn, getTranslationColumnName } from './decorator';
@@ -27,11 +30,14 @@ export {
   transformBeforeSave,
 } from './utils';
 
+// Language utilities are internal - language codes are normalized automatically
+
 // Export subscriber
 export { I18nSubscriber } from './subscriber';
 
-// Export repository
+// Export repository and query builder
 export { I18nRepository, getI18nRepository } from './repository';
+export { I18nQueryBuilder } from './query-builder';
 
 // Export metadata storage (for advanced usage)
 export { i18nMetadataStorage } from './metadata';

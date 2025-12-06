@@ -1,14 +1,18 @@
+import { normalizeLanguageCode, normalizeLanguageCodes } from './language-utils';
+
 /**
  * Global configuration for I18n columns
  */
 export interface I18nGlobalConfig {
   /**
-   * Default languages to use for all I18n columns
+   * Default languages to use for all I18n columns.
+   * Language codes are automatically normalized to lowercase.
    */
   languages?: readonly string[];
 
   /**
-   * Default language to use as the base column
+   * Default language to use as the base column.
+   * Language code is automatically normalized to lowercase.
    */
   default_language?: string;
 }
@@ -23,13 +27,16 @@ let globalConfig: I18nGlobalConfig = {};
  * This configuration will be used as defaults for all @I18nColumn decorators.
  * Column-level configuration always takes precedence over global configuration.
  *
+ * Language codes are automatically normalized to lowercase for consistent handling.
+ * For example, 'EN', 'En', and 'en' will all be treated as 'en'.
+ *
  * @param config - Global I18n configuration
  *
  * @example
  * ```typescript
  * // Set global defaults once in your application
  * setI18nConfig({
- *   languages: ['en', 'es', 'fr'],
+ *   languages: ['en', 'es', 'fr'],  // or ['EN', 'ES', 'FR'] - normalized to lowercase
  *   default_language: 'en',
  * });
  *
@@ -47,7 +54,12 @@ let globalConfig: I18nGlobalConfig = {};
  * ```
  */
 export function setI18nConfig(config: I18nGlobalConfig): void {
-  globalConfig = { ...config };
+  globalConfig = {
+    languages: config.languages ? normalizeLanguageCodes(config.languages) : undefined,
+    default_language: config.default_language
+      ? normalizeLanguageCode(config.default_language)
+      : undefined,
+  };
 }
 
 /**

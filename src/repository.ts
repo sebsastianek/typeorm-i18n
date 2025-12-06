@@ -1,6 +1,8 @@
 import { Repository, DataSource, FindManyOptions, FindOneOptions, FindOptionsWhere } from 'typeorm';
 import { i18nMetadataStorage } from './metadata';
 import { LANGUAGE_DELIMITER } from './constants';
+import { I18nQueryBuilder, createI18nQueryBuilder } from './query-builder';
+import { normalizeLanguageCode } from './language-utils';
 
 /**
  * Extended repository with i18n support.
@@ -21,13 +23,14 @@ export class I18nRepository<Entity extends object> extends Repository<Entity> {
   /**
    * Set the current language for queries.
    * When set, all find operations will use the specified language's columns.
+   * Language codes are automatically normalized to lowercase for consistent handling.
    *
-   * @param language - The language code to use for queries
+   * @param language - The language code to use for queries (case-insensitive)
    *
    * @example
    * ```typescript
    * const repo = getI18nRepository(Product, dataSource);
-   * repo.setLanguage('es');
+   * repo.setLanguage('es');  // or 'ES', 'Es' - all normalized to 'es'
    *
    * // Now queries automatically use Spanish columns
    * const products = await repo.find({ where: { name: 'Portátil' } });
@@ -35,7 +38,7 @@ export class I18nRepository<Entity extends object> extends Repository<Entity> {
    * ```
    */
   setLanguage(language: string): this {
-    this.currentLanguage = language;
+    this.currentLanguage = normalizeLanguageCode(language);
     return this;
   }
 
@@ -151,17 +154,36 @@ export class I18nRepository<Entity extends object> extends Repository<Entity> {
   }
 
   /**
-   * Create a QueryBuilder with language context.
-   * Note: QueryBuilder requires manual column mapping with getLanguageColumn()
+   * Create an I18nQueryBuilder with language context.
+   * The returned QueryBuilder has additional i18n-aware methods like
+   * whereLanguage(), andWhereLanguage(), orWhereLanguage(), and orderByLanguage().
+   *
+   * @param alias - Optional alias for the entity
+   * @returns An I18nQueryBuilder with language-aware helper methods
+   *
+   * @example
+   * ```typescript
+   * const repo = getI18nRepository(Product, dataSource);
+   * repo.setLanguage('es');
+   *
+   * // Using ergonomic language-aware methods
+   * const products = await repo
+   *   .createQueryBuilder('product')
+   *   .whereLanguage('name', '=', 'Portátil')
+   *   .andWhereLanguage('description', 'LIKE', '%laptop%')
+   *   .orderByLanguage('name', 'ASC')
+   *   .getMany();
+   *
+   * // Or use the traditional approach with getLanguageColumn()
+   * const products2 = await repo
+   *   .createQueryBuilder('product')
+   *   .where(`product.${repo.getLanguageColumn('name')} = :name`, { name: 'Portátil' })
+   *   .getMany();
+   * ```
    */
-  createQueryBuilder(alias?: string): any {
+  override createQueryBuilder(alias?: string): I18nQueryBuilder<Entity> {
     const qb = super.createQueryBuilder(alias);
-
-    // Store language context on the query builder
-    (qb as any).__i18nLanguage = this.currentLanguage;
-    (qb as any).__i18nTarget = this.target;
-
-    return qb;
+    return createI18nQueryBuilder(qb, this.currentLanguage, this.target as Function, alias);
   }
 
   /**

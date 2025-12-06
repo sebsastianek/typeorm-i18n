@@ -44,15 +44,18 @@ ts-node examples/advanced-features.ts
 - Setting current language with `setLanguage()`
 - Querying data using language-specific columns automatically
 - Switching languages dynamically
-- Using `getLanguageColumn()` with QueryBuilder
+- Type-safe queries with `i18nWhere()` and `i18nWhereMany()`
+- Ergonomic QueryBuilder methods (`whereLanguage`, `orderByLanguage`, etc.)
+- Using `getLanguageColumn()` with QueryBuilder (traditional approach)
 - Method chaining for fluent API
 - Mixed conditions (i18n + regular columns)
 
 **Key concepts:**
 - `getI18nRepository()` factory function
 - Language context management (`setLanguage`, `getLanguage`, `clearLanguage`)
+- `i18nWhere<T>()` for type-safe where clauses
+- `I18nQueryBuilder` with language-aware methods
 - Automatic column mapping in queries
-- QueryBuilder integration
 
 **Best for:** Applications that need to query data in different languages
 
@@ -66,6 +69,7 @@ ts-node examples/advanced-features.ts
 - Different i18n value types (string, number, Buffer)
 - Helper utility functions
 - Configuration management
+- Type-safe queries with `i18nWhere()`
 
 **Key concepts:**
 - Overriding global languages per column
@@ -85,6 +89,8 @@ ts-node examples/advanced-features.ts
 
 ```typescript
 // In your HTTP request handler (Express example)
+import { i18nWhere } from '@sebsastianek/typeorm-i18n';
+
 app.get('/products', async (req, res) => {
   const language = req.headers['accept-language'] || 'en';
   const repo = getI18nRepository(Product, dataSource);
@@ -93,9 +99,36 @@ app.get('/products', async (req, res) => {
   const products = await repo.find();
   res.json(products);
 });
+
+app.get('/products/search', async (req, res) => {
+  const { language, name } = req.query;
+  const repo = getI18nRepository(Product, dataSource);
+  repo.setLanguage(language as string);
+
+  // Type-safe query with i18nWhere
+  const products = await repo.find({
+    where: i18nWhere<Product>({ name: name as string }),
+  });
+  res.json(products);
+});
 ```
 
-### Pattern 2: Multi-Language Search
+### Pattern 2: Ergonomic QueryBuilder Search
+
+```typescript
+// Search using the ergonomic language-aware methods
+const repo = getI18nRepository(Product, dataSource);
+repo.setLanguage('es');
+
+const results = await repo
+  .createQueryBuilder('product')
+  .whereLanguage('name', 'LIKE', '%laptop%')
+  .orWhereLanguage('description', 'LIKE', '%laptop%')
+  .orderByLanguage('name', 'ASC')
+  .getMany();
+```
+
+### Pattern 3: Multi-Language Search (All Languages)
 
 ```typescript
 // Search across multiple languages using QueryBuilder
@@ -110,7 +143,7 @@ const results = await repo
   .getMany();
 ```
 
-### Pattern 3: Partial Translations
+### Pattern 4: Partial Translations
 
 ```typescript
 // Some languages can be null/undefined - they're nullable by default
@@ -128,7 +161,7 @@ product.name.fr = 'Ordinateur portable';
 await dataSource.manager.save(product);
 ```
 
-### Pattern 4: Fallback Logic
+### Pattern 5: Fallback Logic
 
 ```typescript
 import { getTranslation } from '@sebsastianek/typeorm-i18n';
@@ -217,10 +250,22 @@ new DataSource({
 
 ### Issue: Type errors with where clauses
 
-**Solution:** Use type assertion when querying with I18nRepository:
+**Solution:** Use the `i18nWhere()` helper for type-safe queries:
 ```typescript
+import { i18nWhere } from '@sebsastianek/typeorm-i18n';
+
 const products = await repo.find({
-  where: { name: 'Laptop' } as any
+  where: i18nWhere<Product>({ name: 'Laptop' })
+});
+
+// For OR conditions:
+import { i18nWhereMany } from '@sebsastianek/typeorm-i18n';
+
+const products = await repo.find({
+  where: i18nWhereMany<Product>([
+    { name: 'Laptop' },
+    { name: 'Mouse' }
+  ])
 });
 ```
 

@@ -11,6 +11,8 @@ TypeORM extension for multilingual database support with strong typing and autom
 - Automatic column generation - creates `name_es`, `name_fr`, etc. from a single decorator
 - Global configuration - define languages once, use everywhere
 - Language context repository - set current language and query automatically
+- **Ergonomic QueryBuilder** - `whereLanguage()`, `orderByLanguage()` and more
+- **Type-safe queries** - `i18nWhere<T>()` helper to avoid `as any`
 - Transparent transformations - works with TypeORM lifecycle
 - Multiple database support - SQLite, PostgreSQL, MySQL, and more
 - Decorator-based API
@@ -83,23 +85,23 @@ const dataSource = new DataSource({
 ### 4. Use Language-Context Repository
 
 ```typescript
-import { getI18nRepository } from '@sebsastianek/typeorm-i18n';
+import { getI18nRepository, i18nWhere } from '@sebsastianek/typeorm-i18n';
 
 // Create repository with language context
 const productRepo = getI18nRepository(Product, dataSource);
 
-// Set current language
+// Set current language (case-insensitive: 'es', 'ES', 'Es' all work)
 productRepo.setLanguage('es');
 
-// Query automatically uses Spanish columns
+// Query automatically uses Spanish columns with type-safe helper
 const products = await productRepo.find({
-  where: { name: 'Portátil' }  // Searches name_es column
+  where: i18nWhere<Product>({ name: 'Portátil' })  // Searches name_es column
 });
 
 // Switch language dynamically
 productRepo.setLanguage('fr');
 const frenchProducts = await productRepo.find({
-  where: { name: 'Ordinateur portable' }  // Searches name_fr column
+  where: i18nWhere<Product>({ name: 'Ordinateur portable' })  // Searches name_fr column
 });
 
 // Clear language context (reverts to default)
@@ -137,7 +139,35 @@ console.log(loaded.name.fr);  // "Ordinateur portable"
 
 ## Advanced Usage
 
-### Using QueryBuilder with Language Context
+### Ergonomic QueryBuilder Methods
+
+The `I18nQueryBuilder` provides language-aware helper methods for cleaner queries:
+
+```typescript
+const repo = getI18nRepository(Product, dataSource);
+repo.setLanguage('es');
+
+// Using ergonomic language-aware methods
+const products = await repo
+  .createQueryBuilder('product')
+  .whereLanguage('name', '=', 'Portátil')
+  .andWhereLanguage('description', 'LIKE', '%laptop%')
+  .orderByLanguage('name', 'ASC')
+  .getMany();
+
+// Available methods:
+// - whereLanguage(property, operator, value)
+// - andWhereLanguage(property, operator, value)
+// - orWhereLanguage(property, operator, value)
+// - orderByLanguage(property, 'ASC' | 'DESC')
+// - addOrderByLanguage(property, 'ASC' | 'DESC')
+// - selectLanguage([properties])
+// - addSelectLanguage([properties])
+```
+
+### Traditional QueryBuilder Approach
+
+You can also use the traditional approach with `getLanguageColumn()`:
 
 ```typescript
 const repo = getI18nRepository(Product, dataSource);
@@ -150,6 +180,30 @@ const products = await repo
   .createQueryBuilder('product')
   .where(`product.${nameColumn} LIKE :search`, { search: '%Port%' })
   .getMany();
+```
+
+### Type-Safe Where Clauses
+
+Use `i18nWhere<T>()` and `i18nWhereMany<T>()` to avoid `as any` type assertions:
+
+```typescript
+import { i18nWhere, i18nWhereMany } from '@sebsastianek/typeorm-i18n';
+
+const repo = getI18nRepository(Product, dataSource);
+repo.setLanguage('es');
+
+// Single condition - type-safe!
+const products = await repo.find({
+  where: i18nWhere<Product>({ name: 'Portátil', isActive: true })
+});
+
+// OR conditions - type-safe!
+const multiProducts = await repo.find({
+  where: i18nWhereMany<Product>([
+    { name: 'Portátil' },
+    { name: 'Ratón' }
+  ])
+});
 ```
 
 ### Column-Level Configuration Override
@@ -252,11 +306,41 @@ Decorator for multilingual columns. Combines both TypeORM `@Column` and i18n fun
 Create an I18nRepository instance with language context support.
 
 **Methods:**
-- `setLanguage(lang: string)`: Set current language for queries (chainable)
-- `getLanguage()`: Get current language
+- `setLanguage(lang: string)`: Set current language for queries (chainable, case-insensitive)
+- `getLanguage()`: Get current language (always lowercase)
 - `clearLanguage()`: Clear language context
 - `getLanguageColumn(propertyName: string)`: Get database column name for current language
+- `createQueryBuilder(alias?)`: Returns an `I18nQueryBuilder` with language-aware methods
 - All standard TypeORM Repository methods (find, findOne, findBy, etc.)
+
+### `I18nQueryBuilder<Entity>`
+
+Extended QueryBuilder with language-aware helper methods:
+
+- `whereLanguage(property, operator, value)`: Add WHERE clause using current language column
+- `andWhereLanguage(property, operator, value)`: Add AND WHERE clause
+- `orWhereLanguage(property, operator, value)`: Add OR WHERE clause
+- `orderByLanguage(property, 'ASC' | 'DESC')`: Order by language column
+- `addOrderByLanguage(property, 'ASC' | 'DESC')`: Add secondary order
+- `selectLanguage([properties])`: Select language columns
+- `addSelectLanguage([properties])`: Add language columns to selection
+
+### `i18nWhere<T>(where)`
+
+Type-safe helper for where clauses. Converts `I18nValue` properties to their base types.
+
+```typescript
+// Instead of: { name: 'Laptop' } as any
+i18nWhere<Product>({ name: 'Laptop' })  // Type-safe!
+```
+
+### `i18nWhereMany<T>(whereClauses)`
+
+Type-safe helper for OR conditions.
+
+```typescript
+i18nWhereMany<Product>([{ name: 'Laptop' }, { name: 'Mouse' }])
+```
 
 ### `I18nValue<TLang, TValue>`
 
