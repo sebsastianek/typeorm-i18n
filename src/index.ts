@@ -13,14 +13,13 @@ export type {
   I18nValue,
   I18nColumnOptions,
   I18nColumnMetadata,
-  I18nWhere,
   I18nEntity,
   TranslationsKey,
 } from './types';
 export type { I18nGlobalConfig } from './config';
 
-// Export type helpers and symbols
-export { i18nWhere, i18nWhereMany, I18N_LANGUAGE_KEY } from './types';
+// Export symbols
+export { I18N_LANGUAGE_KEY } from './types';
 
 // Export decorator
 export { I18nColumn, getTranslationColumnName } from './decorator';

@@ -1,4 +1,4 @@
-import { DataSource } from 'typeorm';
+import { DataSource, Like } from 'typeorm';
 import {
   I18nLanguageService,
   I18nModuleOptions,
@@ -300,7 +300,7 @@ describe('NestJS Integration', () => {
 
       const products = await repo
         .createQueryBuilder('product')
-        .whereLanguage('name', '=', 'Portátil')
+        .where({ name: 'Portátil' })
         .getMany();
 
       expect(products).toHaveLength(1);
@@ -316,7 +316,7 @@ describe('NestJS Integration', () => {
 
       const frProducts = await repoFr
         .createQueryBuilder('product')
-        .whereLanguage('name', '=', 'Ordinateur portable')
+        .where({ name: 'Ordinateur portable' })
         .getMany();
       expect(frProducts).toHaveLength(1);
 
@@ -327,7 +327,7 @@ describe('NestJS Integration', () => {
 
       const esProducts = await repoEs
         .createQueryBuilder('product')
-        .whereLanguage('name', '=', 'Portátil')
+        .where({ name: 'Portátil' })
         .getMany();
       expect(esProducts).toHaveLength(1);
     });
@@ -356,7 +356,7 @@ describe('NestJS Integration', () => {
       // 4. Query uses Spanish column
       const products = await repo
         .createQueryBuilder('product')
-        .whereLanguage('name', 'LIKE', '%Portátil%')
+        .where({ name: Like('%Portátil%') })
         .getMany();
 
       expect(products).toHaveLength(1);

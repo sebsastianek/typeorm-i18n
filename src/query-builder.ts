@@ -1,11 +1,11 @@
-import { SelectQueryBuilder, ObjectLiteral } from 'typeorm';
+import { SelectQueryBuilder, ObjectLiteral, Brackets, WhereExpressionBuilder } from 'typeorm';
 import { i18nMetadataStorage } from './metadata';
 import { LANGUAGE_DELIMITER } from './constants';
 import { transformAfterLoad } from './utils';
 
 /**
- * Extended QueryBuilder with i18n-aware helper methods.
- * Provides ergonomic methods for querying translated columns without manual column mapping.
+ * Extended QueryBuilder with automatic i18n column translation.
+ * Standard methods like where(), orderBy() automatically use language-specific columns.
  *
  * @template Entity - The entity type
  *
@@ -14,32 +14,25 @@ import { transformAfterLoad } from './utils';
  * const repo = getI18nRepository(Product, dataSource);
  * repo.setLanguage('es');
  *
- * // Instead of:
+ * // Standard methods automatically use Spanish columns
  * const products = await repo
  *   .createQueryBuilder('product')
- *   .where(`product.${repo.getLanguageColumn('name')} = :name`, { name: 'Portátil' })
- *   .getMany();
- *
- * // You can now write:
- * const products = await repo
- *   .createQueryBuilder('product')
- *   .whereLanguage('name', '=', 'Portátil')
+ *   .where({ name: 'Portátil' })           // Uses name_es
+ *   .orderBy('product.name', 'ASC')        // Orders by name_es
  *   .getMany();
  * ```
  */
 export class I18nQueryBuilder<Entity extends ObjectLiteral> extends SelectQueryBuilder<Entity> {
   private __i18nLanguage: string | null = null;
   private __i18nTarget: Function | null = null;
-  private __i18nAlias: string | undefined;
 
   /**
    * Set the i18n context for this query builder
    * @internal
    */
-  setI18nContext(language: string | null, target: Function, alias?: string): this {
+  setI18nContext(language: string | null, target: Function, _alias?: string): this {
     this.__i18nLanguage = language;
     this.__i18nTarget = target;
-    this.__i18nAlias = alias;
     return this;
   }
 
@@ -68,169 +61,206 @@ export class I18nQueryBuilder<Entity extends ObjectLiteral> extends SelectQueryB
   }
 
   /**
-   * Build the full column reference with alias
+   * Transform a where object to use language-specific columns
    */
-  private buildColumnRef(propertyName: string): string {
-    const columnName = this.getLanguageColumn(propertyName);
-    return this.__i18nAlias ? `${this.__i18nAlias}.${columnName}` : columnName;
-  }
-
-  /**
-   * Generate a unique parameter name to avoid conflicts
-   */
-  private generateParamName(propertyName: string): string {
-    return `${propertyName}_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
-  }
-
-  /**
-   * Add a WHERE condition using the current language's column.
-   * Automatically maps the property name to the correct language-specific column.
-   *
-   * @param propertyName - The i18n property name (e.g., 'name', 'description')
-   * @param operator - SQL operator (e.g., '=', 'LIKE', '!=', '>', '<')
-   * @param value - The value to compare against
-   * @returns The query builder for chaining
-   *
-   * @example
-   * ```typescript
-   * repo.setLanguage('es');
-   * const products = await repo
-   *   .createQueryBuilder('product')
-   *   .whereLanguage('name', '=', 'Portátil')
-   *   .getMany();
-   * // Generates: WHERE product.name_es = 'Portátil'
-   * ```
-   */
-  whereLanguage(propertyName: string, operator: string, value: any): this {
-    const columnRef = this.buildColumnRef(propertyName);
-    const paramName = this.generateParamName(propertyName);
-    return this.where(`${columnRef} ${operator} :${paramName}`, { [paramName]: value });
-  }
-
-  /**
-   * Add an AND WHERE condition using the current language's column.
-   *
-   * @param propertyName - The i18n property name
-   * @param operator - SQL operator
-   * @param value - The value to compare against
-   * @returns The query builder for chaining
-   *
-   * @example
-   * ```typescript
-   * repo.setLanguage('es');
-   * const products = await repo
-   *   .createQueryBuilder('product')
-   *   .where('product.isActive = :active', { active: true })
-   *   .andWhereLanguage('name', 'LIKE', '%Portátil%')
-   *   .getMany();
-   * ```
-   */
-  andWhereLanguage(propertyName: string, operator: string, value: any): this {
-    const columnRef = this.buildColumnRef(propertyName);
-    const paramName = this.generateParamName(propertyName);
-    return this.andWhere(`${columnRef} ${operator} :${paramName}`, { [paramName]: value });
-  }
-
-  /**
-   * Add an OR WHERE condition using the current language's column.
-   *
-   * @param propertyName - The i18n property name
-   * @param operator - SQL operator
-   * @param value - The value to compare against
-   * @returns The query builder for chaining
-   *
-   * @example
-   * ```typescript
-   * repo.setLanguage('es');
-   * const products = await repo
-   *   .createQueryBuilder('product')
-   *   .whereLanguage('name', '=', 'Portátil')
-   *   .orWhereLanguage('name', '=', 'Ratón')
-   *   .getMany();
-   * ```
-   */
-  orWhereLanguage(propertyName: string, operator: string, value: any): this {
-    const columnRef = this.buildColumnRef(propertyName);
-    const paramName = this.generateParamName(propertyName);
-    return this.orWhere(`${columnRef} ${operator} :${paramName}`, { [paramName]: value });
-  }
-
-  /**
-   * Add an ORDER BY clause using the current language's column.
-   *
-   * @param propertyName - The i18n property name
-   * @param order - Sort order ('ASC' or 'DESC')
-   * @param nulls - Optional null ordering ('NULLS FIRST' or 'NULLS LAST')
-   * @returns The query builder for chaining
-   *
-   * @example
-   * ```typescript
-   * repo.setLanguage('es');
-   * const products = await repo
-   *   .createQueryBuilder('product')
-   *   .orderByLanguage('name', 'ASC')
-   *   .getMany();
-   * // Orders by name_es ASC
-   * ```
-   */
-  orderByLanguage(
-    propertyName: string,
-    order: 'ASC' | 'DESC' = 'ASC',
-    nulls?: 'NULLS FIRST' | 'NULLS LAST'
-  ): this {
-    const columnRef = this.buildColumnRef(propertyName);
-    return this.orderBy(columnRef, order, nulls);
-  }
-
-  /**
-   * Add an additional ORDER BY clause using the current language's column.
-   *
-   * @param propertyName - The i18n property name
-   * @param order - Sort order ('ASC' or 'DESC')
-   * @param nulls - Optional null ordering
-   * @returns The query builder for chaining
-   */
-  addOrderByLanguage(
-    propertyName: string,
-    order: 'ASC' | 'DESC' = 'ASC',
-    nulls?: 'NULLS FIRST' | 'NULLS LAST'
-  ): this {
-    const columnRef = this.buildColumnRef(propertyName);
-    return this.addOrderBy(columnRef, order, nulls);
-  }
-
-  /**
-   * Select specific i18n columns in the current language.
-   *
-   * @param propertyNames - Array of i18n property names to select
-   * @returns The query builder for chaining
-   *
-   * @example
-   * ```typescript
-   * repo.setLanguage('es');
-   * const products = await repo
-   *   .createQueryBuilder('product')
-   *   .selectLanguage(['name', 'description'])
-   *   .getMany();
-   * // Selects name_es, description_es
-   * ```
-   */
-  selectLanguage(propertyNames: string[]): this {
-    const columns = propertyNames.map((prop) => this.buildColumnRef(prop));
-    return this.select(columns);
-  }
-
-  /**
-   * Add i18n columns to the selection in the current language.
-   *
-   * @param propertyNames - Array of i18n property names to add to selection
-   * @returns The query builder for chaining
-   */
-  addSelectLanguage(propertyNames: string[]): this {
-    for (const prop of propertyNames) {
-      this.addSelect(this.buildColumnRef(prop));
+  private transformWhereObject(where: ObjectLiteral): ObjectLiteral {
+    if (!this.__i18nLanguage || !this.__i18nTarget) {
+      return where;
     }
-    return this;
+
+    const transformed: ObjectLiteral = {};
+    for (const [key, value] of Object.entries(where)) {
+      const columnName = this.getLanguageColumn(key);
+      transformed[columnName] = value;
+    }
+    return transformed;
+  }
+
+  /**
+   * Transform a column reference string (e.g., "alias.name") to use language-specific column
+   */
+  private transformColumnString(column: string): string {
+    if (!this.__i18nLanguage || !this.__i18nTarget) {
+      return column;
+    }
+
+    // Handle "alias.property" format
+    const dotIndex = column.lastIndexOf('.');
+    if (dotIndex !== -1) {
+      const alias = column.substring(0, dotIndex);
+      const property = column.substring(dotIndex + 1);
+      const transformedProperty = this.getLanguageColumn(property);
+      return `${alias}.${transformedProperty}`;
+    }
+
+    // Handle plain property name
+    return this.getLanguageColumn(column);
+  }
+
+  /**
+   * Transform an order object to use language-specific columns
+   */
+  private transformOrderObject(
+    order: { [key: string]: 'ASC' | 'DESC' | { order: 'ASC' | 'DESC'; nulls?: 'NULLS FIRST' | 'NULLS LAST' } }
+  ): { [key: string]: 'ASC' | 'DESC' | { order: 'ASC' | 'DESC'; nulls?: 'NULLS FIRST' | 'NULLS LAST' } } {
+    const transformed: typeof order = {};
+    for (const [key, value] of Object.entries(order)) {
+      const transformedKey = this.transformColumnString(key);
+      transformed[transformedKey] = value;
+    }
+    return transformed;
+  }
+
+  /**
+   * Override where() to automatically use language-specific columns.
+   * Supports object notation: .where({ name: 'value' })
+   */
+  override where(
+    where:
+      | string
+      | ((qb: WhereExpressionBuilder) => string)
+      | Brackets
+      | ObjectLiteral
+      | ObjectLiteral[],
+    parameters?: ObjectLiteral
+  ): this {
+    if (typeof where === 'object' && where !== null && !(where instanceof Brackets) && !Array.isArray(where)) {
+      where = this.transformWhereObject(where);
+    } else if (Array.isArray(where)) {
+      where = where.map((w) => this.transformWhereObject(w));
+    }
+    return super.where(where, parameters);
+  }
+
+  /**
+   * Override andWhere() to automatically use language-specific columns.
+   */
+  override andWhere(
+    where:
+      | string
+      | ((qb: WhereExpressionBuilder) => string)
+      | Brackets
+      | ObjectLiteral
+      | ObjectLiteral[],
+    parameters?: ObjectLiteral
+  ): this {
+    if (typeof where === 'object' && where !== null && !(where instanceof Brackets) && !Array.isArray(where)) {
+      where = this.transformWhereObject(where);
+    } else if (Array.isArray(where)) {
+      where = where.map((w) => this.transformWhereObject(w));
+    }
+    return super.andWhere(where, parameters);
+  }
+
+  /**
+   * Override orWhere() to automatically use language-specific columns.
+   */
+  override orWhere(
+    where:
+      | string
+      | ((qb: WhereExpressionBuilder) => string)
+      | Brackets
+      | ObjectLiteral
+      | ObjectLiteral[],
+    parameters?: ObjectLiteral
+  ): this {
+    if (typeof where === 'object' && where !== null && !(where instanceof Brackets) && !Array.isArray(where)) {
+      where = this.transformWhereObject(where);
+    } else if (Array.isArray(where)) {
+      where = where.map((w) => this.transformWhereObject(w));
+    }
+    return super.orWhere(where, parameters);
+  }
+
+  /**
+   * Override orderBy() to automatically use language-specific columns.
+   * Supports both string and object notation.
+   */
+  override orderBy(
+    sort?: string | ObjectLiteral,
+    order?: 'ASC' | 'DESC',
+    nulls?: 'NULLS FIRST' | 'NULLS LAST'
+  ): this {
+    if (typeof sort === 'string') {
+      sort = this.transformColumnString(sort);
+    } else if (typeof sort === 'object' && sort !== null) {
+      sort = this.transformOrderObject(sort as any);
+    }
+    return super.orderBy(sort as any, order, nulls);
+  }
+
+  /**
+   * Override addOrderBy() to automatically use language-specific columns.
+   */
+  override addOrderBy(
+    sort: string,
+    order?: 'ASC' | 'DESC',
+    nulls?: 'NULLS FIRST' | 'NULLS LAST'
+  ): this {
+    sort = this.transformColumnString(sort);
+    return super.addOrderBy(sort, order, nulls);
+  }
+
+  /**
+   * Override select() to automatically use language-specific columns.
+   * Supports string format like "alias.property" or array of strings.
+   */
+  override select(): this;
+  override select(selection: (qb: SelectQueryBuilder<any>) => SelectQueryBuilder<any>, selectionAliasName?: string): this;
+  override select(selection: string, selectionAliasName?: string): this;
+  override select(selection: string[]): this;
+  override select(
+    selection?: string | string[] | ((qb: SelectQueryBuilder<any>) => SelectQueryBuilder<any>),
+    selectionAliasName?: string
+  ): this {
+    if (typeof selection === 'function') {
+      return super.select(selection, selectionAliasName);
+    }
+    if (typeof selection === 'string') {
+      selection = this.transformColumnString(selection);
+    } else if (Array.isArray(selection)) {
+      selection = selection.map((s) => this.transformColumnString(s));
+    }
+    return super.select(selection as any, selectionAliasName);
+  }
+
+  /**
+   * Override addSelect() to automatically use language-specific columns.
+   */
+  override addSelect(selection: string, selectionAliasName?: string): this;
+  override addSelect(selection: string[]): this;
+  override addSelect(selection: (qb: SelectQueryBuilder<any>) => SelectQueryBuilder<any>): this;
+  override addSelect(
+    selection: string | string[] | ((qb: SelectQueryBuilder<any>) => SelectQueryBuilder<any>),
+    selectionAliasName?: string
+  ): this {
+    if (typeof selection === 'function') {
+      return super.addSelect(selection);
+    }
+    if (typeof selection === 'string') {
+      selection = this.transformColumnString(selection);
+    } else if (Array.isArray(selection)) {
+      selection = selection.map((s) => this.transformColumnString(s));
+    }
+    return super.addSelect(selection as any, selectionAliasName);
+  }
+
+  /**
+   * Override groupBy() to automatically use language-specific columns.
+   */
+  override groupBy(groupBy?: string): this {
+    if (groupBy) {
+      return super.groupBy(this.transformColumnString(groupBy));
+    }
+    return super.groupBy();
+  }
+
+  /**
+   * Override addGroupBy() to automatically use language-specific columns.
+   */
+  override addGroupBy(groupBy: string): this {
+    groupBy = this.transformColumnString(groupBy);
+    return super.addGroupBy(groupBy);
   }
 
   /**
@@ -261,14 +291,14 @@ export class I18nQueryBuilder<Entity extends ObjectLiteral> extends SelectQueryB
 
   /**
    * Get one entity or fail with language-aware transformation.
-   * Overrides the base getOneOrFail to apply language context to loaded entity.
+   * Note: TypeORM's getOneOrFail() internally calls getOne(), which we've already overridden
+   * to apply language transformation. So we don't need to transform again here.
    */
   override async getOneOrFail(): Promise<Entity> {
-    const entity = await super.getOneOrFail();
-    if (this.__i18nLanguage) {
-      transformAfterLoad(entity, this.__i18nLanguage);
-    }
-    return entity;
+    // TypeORM's getOneOrFail() calls this.getOne() internally,
+    // which is our overridden getOne() that already handles transformation.
+    // We just need to delegate to super without additional transformation.
+    return super.getOneOrFail();
   }
 }
 

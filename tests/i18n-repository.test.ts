@@ -262,4 +262,403 @@ describe('I18nRepository', () => {
       expect(products.length).toBeGreaterThan(0);
     });
   });
+
+  describe('findAndCount', () => {
+    it('should translate where clause in findAndCount', async () => {
+      const repo = getI18nRepository(Product, dataSource);
+      repo.setLanguage('es');
+
+      const [products, count] = await repo.findAndCount({
+        where: { name: 'Portátil' } as any,
+      });
+
+      expect(count).toBe(1);
+      expect(products).toHaveLength(1);
+      expect(products[0].nameTranslations?.es).toBe('Portátil');
+      expect(products[0].name).toBe('Portátil');
+    });
+
+    it('should translate order clause in findAndCount', async () => {
+      const repo = getI18nRepository(Product, dataSource);
+      repo.setLanguage('es');
+
+      const [products, count] = await repo.findAndCount({
+        order: { name: 'ASC' } as any,
+      });
+
+      expect(count).toBeGreaterThan(0);
+      const names = products.map((p) => p.nameTranslations?.es);
+      const sortedNames = [...names].sort();
+      expect(names).toEqual(sortedNames);
+    });
+
+    it('should work with findAndCountBy', async () => {
+      const repo = getI18nRepository(Product, dataSource);
+      repo.setLanguage('es');
+
+      const [products, count] = await repo.findAndCountBy({ name: 'Ratón' } as any);
+
+      expect(count).toBe(1);
+      expect(products).toHaveLength(1);
+      expect(products[0].nameTranslations?.es).toBe('Ratón');
+    });
+  });
+
+  describe('findOneOrFail / findOneByOrFail', () => {
+    it('should translate where clause in findOneOrFail', async () => {
+      const repo = getI18nRepository(Product, dataSource);
+      repo.setLanguage('es');
+
+      const product = await repo.findOneOrFail({
+        where: { name: 'Portátil' } as any,
+      });
+
+      expect(product.nameTranslations?.es).toBe('Portátil');
+      expect(product.name).toBe('Portátil');
+    });
+
+    it('should throw when not found in findOneOrFail', async () => {
+      const repo = getI18nRepository(Product, dataSource);
+      repo.setLanguage('es');
+
+      await expect(
+        repo.findOneOrFail({ where: { name: 'NonExistent' } as any })
+      ).rejects.toThrow();
+    });
+
+    it('should translate where clause in findOneByOrFail', async () => {
+      const repo = getI18nRepository(Product, dataSource);
+      repo.setLanguage('fr');
+
+      const product = await repo.findOneByOrFail({ name: 'Ordinateur portable' } as any);
+
+      expect(product.nameTranslations?.fr).toBe('Ordinateur portable');
+      expect(product.name).toBe('Ordinateur portable');
+    });
+
+    it('should throw when not found in findOneByOrFail', async () => {
+      const repo = getI18nRepository(Product, dataSource);
+      repo.setLanguage('es');
+
+      await expect(
+        repo.findOneByOrFail({ name: 'NonExistent' } as any)
+      ).rejects.toThrow();
+    });
+  });
+
+  describe('count / countBy', () => {
+    it('should translate where clause in count', async () => {
+      const repo = getI18nRepository(Product, dataSource);
+      repo.setLanguage('es');
+
+      const count = await repo.count({
+        where: { name: 'Portátil' } as any,
+      });
+
+      expect(count).toBe(1);
+    });
+
+    it('should count all when no where clause', async () => {
+      const repo = getI18nRepository(Product, dataSource);
+      repo.setLanguage('es');
+
+      const count = await repo.count();
+
+      expect(count).toBe(productFixtures.length);
+    });
+
+    it('should translate where clause in countBy', async () => {
+      const repo = getI18nRepository(Product, dataSource);
+      repo.setLanguage('es');
+
+      const count = await repo.countBy({ name: 'Ratón' } as any);
+
+      expect(count).toBe(1);
+    });
+
+    it('should return 0 when no matches', async () => {
+      const repo = getI18nRepository(Product, dataSource);
+      repo.setLanguage('es');
+
+      const count = await repo.countBy({ name: 'NonExistent' } as any);
+
+      expect(count).toBe(0);
+    });
+  });
+
+  describe('exists / existsBy', () => {
+    it('should translate where clause in exists', async () => {
+      const repo = getI18nRepository(Product, dataSource);
+      repo.setLanguage('es');
+
+      const exists = await repo.exists({
+        where: { name: 'Portátil' } as any,
+      });
+
+      expect(exists).toBe(true);
+    });
+
+    it('should return false when not exists', async () => {
+      const repo = getI18nRepository(Product, dataSource);
+      repo.setLanguage('es');
+
+      const exists = await repo.exists({
+        where: { name: 'NonExistent' } as any,
+      });
+
+      expect(exists).toBe(false);
+    });
+
+    it('should translate where clause in existsBy', async () => {
+      const repo = getI18nRepository(Product, dataSource);
+      repo.setLanguage('fr');
+
+      const exists = await repo.existsBy({ name: 'Souris' } as any);
+
+      expect(exists).toBe(true);
+    });
+
+    it('should return false in existsBy when not found', async () => {
+      const repo = getI18nRepository(Product, dataSource);
+      repo.setLanguage('fr');
+
+      const exists = await repo.existsBy({ name: 'NonExistent' } as any);
+
+      expect(exists).toBe(false);
+    });
+  });
+
+  describe('order option in find', () => {
+    it('should translate order clause in find options', async () => {
+      const repo = getI18nRepository(Product, dataSource);
+      repo.setLanguage('es');
+
+      const products = await repo.find({
+        order: { name: 'ASC' } as any,
+      });
+
+      expect(products.length).toBeGreaterThan(0);
+      const names = products.map((p) => p.nameTranslations?.es);
+      const sortedNames = [...names].sort();
+      expect(names).toEqual(sortedNames);
+    });
+
+    it('should translate order clause descending', async () => {
+      const repo = getI18nRepository(Product, dataSource);
+      repo.setLanguage('es');
+
+      const products = await repo.find({
+        order: { name: 'DESC' } as any,
+      });
+
+      expect(products.length).toBeGreaterThan(0);
+      const names = products.map((p) => p.nameTranslations?.es);
+      const sortedNames = [...names].sort().reverse();
+      expect(names).toEqual(sortedNames);
+    });
+
+    it('should handle mixed i18n and non-i18n order columns', async () => {
+      const repo = getI18nRepository(Product, dataSource);
+      repo.setLanguage('es');
+
+      const products = await repo.find({
+        order: {
+          isActive: 'DESC',
+          name: 'ASC',
+        } as any,
+      });
+
+      expect(products.length).toBeGreaterThan(0);
+    });
+
+    it('should work with where and order together', async () => {
+      const repo = getI18nRepository(Product, dataSource);
+      repo.setLanguage('es');
+
+      const products = await repo.find({
+        where: { isActive: true },
+        order: { name: 'ASC' } as any,
+      });
+
+      expect(products.length).toBeGreaterThan(0);
+      products.forEach((p) => expect(p.isActive).toBe(true));
+      const names = products.map((p) => p.nameTranslations?.es);
+      const sortedNames = [...names].sort();
+      expect(names).toEqual(sortedNames);
+    });
+  });
+
+  describe('Default Language Edge Cases', () => {
+    it('should use base column when language is set to default', async () => {
+      const repo = getI18nRepository(Product, dataSource);
+      repo.setLanguage('en'); // Default language
+
+      // Should query 'name' column, not 'name_en'
+      const products = await repo.find({
+        where: { name: 'Laptop' } as any,
+      });
+
+      expect(products).toHaveLength(1);
+      expect(products[0].name).toBe('Laptop');
+    });
+
+    it('should use base column in order when language is default', async () => {
+      const repo = getI18nRepository(Product, dataSource);
+      repo.setLanguage('en');
+
+      const products = await repo.find({
+        order: { name: 'ASC' } as any,
+      });
+
+      expect(products.length).toBeGreaterThan(0);
+      const names = products.map((p) => p.nameTranslations?.en);
+      const sortedNames = [...names].sort();
+      expect(names).toEqual(sortedNames);
+    });
+
+    it('getLanguageColumn should return base name for default language', () => {
+      const repo = getI18nRepository(Product, dataSource);
+      repo.setLanguage('en');
+
+      expect(repo.getLanguageColumn('name')).toBe('name');
+      expect(repo.getLanguageColumn('description')).toBe('description');
+    });
+  });
+
+  describe('Array Where (OR conditions)', () => {
+    it('should translate array where in findAndCount', async () => {
+      const repo = getI18nRepository(Product, dataSource);
+      repo.setLanguage('es');
+
+      const [products, count] = await repo.findAndCount({
+        where: [{ name: 'Portátil' }, { name: 'Ratón' }] as any,
+      });
+
+      expect(count).toBe(2);
+      expect(products).toHaveLength(2);
+    });
+
+    it('should translate array where in count', async () => {
+      const repo = getI18nRepository(Product, dataSource);
+      repo.setLanguage('es');
+
+      const count = await repo.count({
+        where: [{ name: 'Portátil' }, { name: 'Ratón' }] as any,
+      });
+
+      expect(count).toBe(2);
+    });
+
+    it('should translate array where in exists', async () => {
+      const repo = getI18nRepository(Product, dataSource);
+      repo.setLanguage('es');
+
+      const exists = await repo.exists({
+        where: [{ name: 'Portátil' }, { name: 'NonExistent' }] as any,
+      });
+
+      expect(exists).toBe(true);
+    });
+  });
+
+  describe('Multiple i18n Columns', () => {
+    it('should translate multiple i18n columns in where', async () => {
+      const repo = getI18nRepository(Product, dataSource);
+      repo.setLanguage('es');
+
+      const products = await repo.find({
+        where: {
+          name: 'Portátil',
+          description: 'Portátil de alto rendimiento con SSD',
+        } as any,
+      });
+
+      expect(products).toHaveLength(1);
+      expect(products[0].nameTranslations?.es).toBe('Portátil');
+    });
+
+    it('should translate multiple i18n columns in order', async () => {
+      const repo = getI18nRepository(Product, dataSource);
+      repo.setLanguage('es');
+
+      const products = await repo.find({
+        order: {
+          name: 'ASC',
+          description: 'DESC',
+        } as any,
+      });
+
+      expect(products.length).toBeGreaterThan(0);
+    });
+
+    it('should translate i18n columns in both where and order', async () => {
+      const repo = getI18nRepository(Product, dataSource);
+      repo.setLanguage('fr');
+
+      const products = await repo.find({
+        where: { name: 'Ordinateur portable' } as any,
+        order: { description: 'ASC' } as any,
+      });
+
+      expect(products).toHaveLength(1);
+    });
+  });
+
+  describe('Empty Results Handling', () => {
+    it('should handle empty results in findAndCount', async () => {
+      const repo = getI18nRepository(Product, dataSource);
+      repo.setLanguage('es');
+
+      const [products, count] = await repo.findAndCount({
+        where: { name: 'NonExistent' } as any,
+      });
+
+      expect(count).toBe(0);
+      expect(products).toHaveLength(0);
+    });
+
+    it('should handle empty results in findAndCountBy', async () => {
+      const repo = getI18nRepository(Product, dataSource);
+      repo.setLanguage('es');
+
+      const [products, count] = await repo.findAndCountBy({ name: 'NonExistent' } as any);
+
+      expect(count).toBe(0);
+      expect(products).toHaveLength(0);
+    });
+  });
+
+  describe('No Language Set Behavior', () => {
+    it('should use default column in findAndCount when no language set', async () => {
+      const repo = getI18nRepository(Product, dataSource);
+      // No language set - should use default (en)
+
+      const [products, count] = await repo.findAndCount({
+        where: { name: 'Laptop' } as any,
+      });
+
+      expect(count).toBe(1);
+      expect(products[0].nameTranslations?.en).toBe('Laptop');
+    });
+
+    it('should use default column in count when no language set', async () => {
+      const repo = getI18nRepository(Product, dataSource);
+
+      const count = await repo.count({
+        where: { name: 'Laptop' } as any,
+      });
+
+      expect(count).toBe(1);
+    });
+
+    it('should use default column in exists when no language set', async () => {
+      const repo = getI18nRepository(Product, dataSource);
+
+      const exists = await repo.exists({
+        where: { name: 'Laptop' } as any,
+      });
+
+      expect(exists).toBe(true);
+    });
+  });
 });

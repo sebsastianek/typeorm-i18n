@@ -1,9 +1,9 @@
-import { Repository, DataSource, FindManyOptions, FindOneOptions, FindOptionsWhere } from 'typeorm';
+import { Repository, DataSource, FindManyOptions, FindOneOptions, FindOptionsWhere, DeepPartial, SaveOptions, FindOptionsOrder } from 'typeorm';
 import { i18nMetadataStorage } from './metadata';
 import { LANGUAGE_DELIMITER } from './constants';
 import { I18nQueryBuilder, createI18nQueryBuilder } from './query-builder';
 import { normalizeLanguageCode } from './language-utils';
-import { transformAfterLoad } from './utils';
+import { transformAfterLoad, prepareI18nUpdate } from './utils';
 
 /**
  * Extended repository with i18n support.
@@ -97,6 +97,102 @@ export class I18nRepository<Entity extends object> extends Repository<Entity> {
   }
 
   /**
+   * Find entities and count with automatic language column mapping.
+   */
+  override async findAndCount(options?: FindManyOptions<Entity>): Promise<[Entity[], number]> {
+    const transformedOptions = this.transformFindOptions(options);
+    const [entities, count] = await super.findAndCount(transformedOptions);
+    return [this.setLanguageOnEntities(entities), count];
+  }
+
+  /**
+   * Find entities and count by conditions
+   */
+  override async findAndCountBy(where: FindOptionsWhere<Entity>): Promise<[Entity[], number]> {
+    const transformedWhere = this.transformWhereClause(where);
+    const [entities, count] = await super.findAndCountBy(transformedWhere);
+    return [this.setLanguageOnEntities(entities), count];
+  }
+
+  /**
+   * Find one entity or fail with automatic language column mapping.
+   */
+  override async findOneOrFail(options: FindOneOptions<Entity>): Promise<Entity> {
+    const transformedOptions = this.transformFindOptions(options) || options;
+    const entity = await super.findOneOrFail(transformedOptions);
+    return this.setLanguageOnEntity(entity);
+  }
+
+  /**
+   * Find one entity by conditions or fail
+   */
+  override async findOneByOrFail(where: FindOptionsWhere<Entity>): Promise<Entity> {
+    const transformedWhere = this.transformWhereClause(where);
+    const entity = await super.findOneByOrFail(transformedWhere);
+    return this.setLanguageOnEntity(entity);
+  }
+
+  /**
+   * Count entities with automatic language column mapping.
+   */
+  override async count(options?: FindManyOptions<Entity>): Promise<number> {
+    const transformedOptions = this.transformFindOptions(options);
+    return super.count(transformedOptions);
+  }
+
+  /**
+   * Count entities by conditions
+   */
+  override async countBy(where: FindOptionsWhere<Entity>): Promise<number> {
+    const transformedWhere = this.transformWhereClause(where);
+    return super.countBy(transformedWhere);
+  }
+
+  /**
+   * Check if entity exists with automatic language column mapping.
+   */
+  override async exists(options?: FindManyOptions<Entity>): Promise<boolean> {
+    const transformedOptions = this.transformFindOptions(options);
+    return super.exists(transformedOptions);
+  }
+
+  /**
+   * Check if entity exists by conditions
+   */
+  override async existsBy(where: FindOptionsWhere<Entity>): Promise<boolean> {
+    const transformedWhere = this.transformWhereClause(where);
+    return super.existsBy(transformedWhere);
+  }
+
+  /**
+   * Save entity with automatic i18n preparation.
+   * Copies translations to raw columns before saving so TypeORM detects changes.
+   */
+  override save<T extends DeepPartial<Entity>>(
+    entities: T[],
+    options?: SaveOptions
+  ): Promise<(T & Entity)[]>;
+  override save<T extends DeepPartial<Entity>>(
+    entity: T,
+    options?: SaveOptions
+  ): Promise<T & Entity>;
+  override save<T extends DeepPartial<Entity>>(
+    entityOrEntities: T | T[],
+    options?: SaveOptions
+  ): Promise<(T & Entity) | (T & Entity)[]> {
+    if (Array.isArray(entityOrEntities)) {
+      const entities = entityOrEntities as T[];
+      for (const entity of entities) {
+        prepareI18nUpdate(entity as object);
+      }
+      return super.save(entities, options);
+    }
+    const entity = entityOrEntities as T;
+    prepareI18nUpdate(entity as object);
+    return super.save(entity, options);
+  }
+
+  /**
    * Set the current language on a single entity and re-transform its i18n properties.
    * This updates both the language symbol and the single-value properties.
    */
@@ -135,6 +231,43 @@ export class I18nRepository<Entity extends object> extends Repository<Entity> {
 
     if (transformed.where) {
       transformed.where = this.transformWhereClause(transformed.where);
+    }
+
+    if ((transformed as FindManyOptions<Entity>).order) {
+      (transformed as FindManyOptions<Entity>).order = this.transformOrderClause(
+        (transformed as FindManyOptions<Entity>).order!
+      );
+    }
+
+    return transformed;
+  }
+
+  /**
+   * Transform order clause to use language-specific columns
+   */
+  private transformOrderClause(order: FindOptionsOrder<Entity>): FindOptionsOrder<Entity> {
+    if (!order || !this.currentLanguage) {
+      return order;
+    }
+
+    const metadata = i18nMetadataStorage.getMetadata(this.target as Function);
+    const transformed: any = {};
+
+    for (const [key, value] of Object.entries(order)) {
+      const i18nMeta = metadata.find((m) => m.propertyName === key);
+
+      if (i18nMeta) {
+        const { options } = i18nMeta;
+        let columnName: string;
+        if (this.currentLanguage === options.default_language) {
+          columnName = key;
+        } else {
+          columnName = `${key}${LANGUAGE_DELIMITER}${this.currentLanguage}`;
+        }
+        transformed[columnName] = value;
+      } else {
+        transformed[key] = value;
+      }
     }
 
     return transformed;
@@ -187,29 +320,22 @@ export class I18nRepository<Entity extends object> extends Repository<Entity> {
 
   /**
    * Create an I18nQueryBuilder with language context.
-   * The returned QueryBuilder has additional i18n-aware methods like
-   * whereLanguage(), andWhereLanguage(), orWhereLanguage(), and orderByLanguage().
+   * Standard methods like where(), orderBy(), select() automatically
+   * translate i18n column names to the current language.
    *
    * @param alias - Optional alias for the entity
-   * @returns An I18nQueryBuilder with language-aware helper methods
+   * @returns An I18nQueryBuilder with automatic i18n translation
    *
    * @example
    * ```typescript
    * const repo = getI18nRepository(Product, dataSource);
    * repo.setLanguage('es');
    *
-   * // Using ergonomic language-aware methods
+   * // Standard methods auto-translate i18n columns
    * const products = await repo
    *   .createQueryBuilder('product')
-   *   .whereLanguage('name', '=', 'Portátil')
-   *   .andWhereLanguage('description', 'LIKE', '%laptop%')
-   *   .orderByLanguage('name', 'ASC')
-   *   .getMany();
-   *
-   * // Or use the traditional approach with getLanguageColumn()
-   * const products2 = await repo
-   *   .createQueryBuilder('product')
-   *   .where(`product.${repo.getLanguageColumn('name')} = :name`, { name: 'Portátil' })
+   *   .where({ name: 'Portátil' })           // Queries name_es
+   *   .orderBy('product.name', 'ASC')        // Orders by name_es
    *   .getMany();
    * ```
    */

@@ -13,7 +13,7 @@ import {
   I18nColumn,
   I18nValue,
   I18nSubscriber,
-  prepareI18nUpdate,
+  getI18nRepository,
 } from '../src';
 
 type Languages = 'en' | 'es' | 'fr';
@@ -53,7 +53,7 @@ async function main() {
   });
 
   await dataSource.initialize();
-  const repo = dataSource.getRepository(Product);
+  const repo = getI18nRepository(Product, dataSource);
 
   // Create
   const product = new Product();
@@ -80,13 +80,12 @@ async function main() {
   console.log('  nameTranslations.es:', loaded?.nameTranslations?.es);
   console.log('  nameTranslations.fr:', loaded?.nameTranslations?.fr);
 
-  // Update
+  // Update - I18nRepository.save() handles translations automatically
   loaded!.nameTranslations = {
     en: 'Gaming Laptop',
     es: 'Portátil Gaming',
     fr: 'Ordinateur portable Gaming',
   };
-  prepareI18nUpdate(loaded!);
   await repo.save(loaded!);
 
   const updated = await repo.findOne({ where: { id: saved.id } });
