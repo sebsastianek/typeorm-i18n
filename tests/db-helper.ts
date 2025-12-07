@@ -98,7 +98,13 @@ export async function seedDatabase<T extends object>(
   fixtures: Partial<T>[]
 ): Promise<T[]> {
   const repository = dataSource.getRepository(entity);
-  const entities = fixtures.map((fixture) => repository.create(fixture as any));
+  // Use Object.assign to ensure virtual properties (like nameTranslations) are copied
+  // TypeORM's create() only copies column properties
+  const entities = fixtures.map((fixture) => {
+    const created = repository.create();
+    Object.assign(created, fixture);
+    return created;
+  });
   const saved = await repository.save(entities as any);
   return saved as T[];
 }

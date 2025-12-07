@@ -1,74 +1,72 @@
 # TypeORM i18n
 
-> **⚠️ Under Development**
-> This library is currently under active development and is not yet production-ready. APIs may change without notice.
+> **Under Development** - APIs may change without notice.
 
-TypeORM extension for multilingual database support with strong typing and automatic column management.
+TypeORM extension for multilingual column support. Generates language-specific database columns from a single decorator and provides utilities for querying by language.
 
 ## Features
 
-- Strong typing with `I18nValue<TLang, TValue>` for compile-time safety
-- Automatic column generation - creates `name_es`, `name_fr`, etc. from a single decorator
-- Global configuration - define languages once, use everywhere
-- Language context repository - set current language and query automatically
-- **Ergonomic QueryBuilder** - `whereLanguage()`, `orderByLanguage()` and more
-- **Type-safe queries** - `i18nWhere<T>()` helper to avoid `as any`
-- Transparent transformations - works with TypeORM lifecycle
-- Multiple database support - SQLite, PostgreSQL, MySQL, and more
-- Decorator-based API
+- `I18nValue<TLang, TValue>` type for compile-time language validation
+- Generates columns per language (`name`, `name_es`, `name_fr`) from `@I18nColumn` decorator
+- Global or per-column language configuration
+- `I18nRepository` with language context for queries
+- `I18nQueryBuilder` with `whereLanguage()`, `orderByLanguage()` methods
+- `i18nWhere<T>()` helper for typed where clauses
+- NestJS module with request-scoped language resolution
+- Works with TypeORM subscriber lifecycle
+- Supports SQLite, PostgreSQL, MySQL
 
-## Quick Start
+## Setup
 
-### 1. Configure Global Settings (Optional but Recommended)
+### 1. Global Configuration
 
 ```typescript
 import { setI18nConfig } from '@sebsastianek/typeorm-i18n';
 
-// Set once at application startup
 setI18nConfig({
   languages: ['en', 'es', 'fr'],
   default_language: 'en',
 });
 ```
 
-### 2. Define Your Entity
+### 2. Entity Definition
 
 ```typescript
 import { Entity, PrimaryGeneratedColumn, Column } from 'typeorm';
 import { I18nColumn, I18nValue } from '@sebsastianek/typeorm-i18n';
 
-type SupportedLanguages = 'en' | 'es' | 'fr';
+type Languages = 'en' | 'es' | 'fr';
 
 @Entity()
 export class Product {
   @PrimaryGeneratedColumn()
   id: number;
 
-  @I18nColumn({
-    type: 'varchar',
-    length: 255,
-  })
-  name: I18nValue<SupportedLanguages, string>;
+  @I18nColumn({ type: 'varchar', length: 255 })
+  name!: string;  // Current language value
 
-  @I18nColumn({
-    type: 'text',
-  })
-  description: I18nValue<SupportedLanguages, string>;
+  nameTranslations?: I18nValue<Languages, string>;  // All translations
+
+  @I18nColumn({ type: 'text' })
+  description!: string;
+
+  descriptionTranslations?: I18nValue<Languages, string>;
 
   @Column('decimal')
   price: number;
 }
 ```
 
-This automatically creates database columns:
-- `name` (English - default language)
-- `name_es` (Spanish)
-- `name_fr` (French)
-- `description` (English)
-- `description_es` (Spanish)
-- `description_fr` (French)
+Each `@I18nColumn` produces:
+- Base property (`name`) - holds current language value based on repository context
+- Virtual property (`nameTranslations`) - holds all translations as `I18nValue` object
 
-### 3. Register the Subscriber
+Generated columns:
+- `name` (default language)
+- `name_es`
+- `name_fr`
+
+### 3. Register Subscriber
 
 ```typescript
 import { DataSource } from 'typeorm';
@@ -76,129 +74,107 @@ import { I18nSubscriber } from '@sebsastianek/typeorm-i18n';
 
 const dataSource = new DataSource({
   type: 'postgres',
-  // ... other options
   entities: [Product],
   subscribers: [I18nSubscriber],
 });
 ```
 
-### 4. Use Language-Context Repository
+### 4. Repository Usage
 
 ```typescript
 import { getI18nRepository, i18nWhere } from '@sebsastianek/typeorm-i18n';
 
-// Create repository with language context
-const productRepo = getI18nRepository(Product, dataSource);
+const repo = getI18nRepository(Product, dataSource);
 
-// Set current language (case-insensitive: 'es', 'ES', 'Es' all work)
-productRepo.setLanguage('es');
+// Set language context (case-insensitive)
+repo.setLanguage('es');
 
-// Query automatically uses Spanish columns with type-safe helper
-const products = await productRepo.find({
-  where: i18nWhere<Product>({ name: 'Portátil' })  // Searches name_es column
+// Queries use language-specific columns
+const products = await repo.find({
+  where: i18nWhere<Product>({ name: 'Portátil' })  // Queries name_es
 });
 
-// Switch language dynamically
-productRepo.setLanguage('fr');
-const frenchProducts = await productRepo.find({
-  where: i18nWhere<Product>({ name: 'Ordinateur portable' })  // Searches name_fr column
-});
+// Loaded entities have language-specific values
+console.log(products[0].name);  // "Portátil"
+console.log(products[0].nameTranslations?.en);  // "Laptop"
 
-// Clear language context (reverts to default)
-productRepo.clearLanguage();
+repo.clearLanguage();  // Revert to default
 ```
 
-### 5. Working with Data
+### 5. CRUD Operations
 
 ```typescript
-// Create a product
+// Create
 const product = new Product();
-product.name = {
+product.nameTranslations = {
   en: 'Laptop',
   es: 'Portátil',
   fr: 'Ordinateur portable',
 };
-product.description = {
-  en: 'Powerful laptop',
-  es: 'Portátil potente',
-  fr: 'Ordinateur portable puissant',
-};
 product.price = 999.99;
+await repo.save(product);
 
-await dataSource.manager.save(product);
+// Read
+const loaded = await repo.findOne({ where: { id: product.id } });
+console.log(loaded.name);  // Default language value
+console.log(loaded.nameTranslations);  // All translations
 
-// Load and access translations
-const loaded = await dataSource.manager.findOne(Product, {
-  where: { id: product.id }
-});
+// Update - requires prepareI18nUpdate()
+import { prepareI18nUpdate } from '@sebsastianek/typeorm-i18n';
 
-console.log(loaded.name.en);  // "Laptop"
-console.log(loaded.name.es);  // "Portátil"
-console.log(loaded.name.fr);  // "Ordinateur portable"
+loaded.nameTranslations = { en: 'New Name', es: 'Nuevo', fr: 'Nouveau' };
+prepareI18nUpdate(loaded);  // Copies translations to raw columns for TypeORM change detection
+await repo.save(loaded);
 ```
 
-## Advanced Usage
+## QueryBuilder
 
-### Ergonomic QueryBuilder Methods
-
-The `I18nQueryBuilder` provides language-aware helper methods for cleaner queries:
+### Language-Aware Methods
 
 ```typescript
-const repo = getI18nRepository(Product, dataSource);
 repo.setLanguage('es');
 
-// Using ergonomic language-aware methods
 const products = await repo
   .createQueryBuilder('product')
   .whereLanguage('name', '=', 'Portátil')
   .andWhereLanguage('description', 'LIKE', '%laptop%')
   .orderByLanguage('name', 'ASC')
   .getMany();
-
-// Available methods:
-// - whereLanguage(property, operator, value)
-// - andWhereLanguage(property, operator, value)
-// - orWhereLanguage(property, operator, value)
-// - orderByLanguage(property, 'ASC' | 'DESC')
-// - addOrderByLanguage(property, 'ASC' | 'DESC')
-// - selectLanguage([properties])
-// - addSelectLanguage([properties])
 ```
 
-### Traditional QueryBuilder Approach
+Available methods:
+- `whereLanguage(property, operator, value)`
+- `andWhereLanguage(property, operator, value)`
+- `orWhereLanguage(property, operator, value)`
+- `orderByLanguage(property, 'ASC' | 'DESC')`
+- `addOrderByLanguage(property, 'ASC' | 'DESC')`
+- `selectLanguage([properties])`
+- `addSelectLanguage([properties])`
 
-You can also use the traditional approach with `getLanguageColumn()`:
+### Manual Column Mapping
 
 ```typescript
-const repo = getI18nRepository(Product, dataSource);
 repo.setLanguage('es');
-
-// Get the language-specific column name
-const nameColumn = repo.getLanguageColumn('name');  // Returns 'name_es'
+const column = repo.getLanguageColumn('name');  // Returns 'name_es'
 
 const products = await repo
   .createQueryBuilder('product')
-  .where(`product.${nameColumn} LIKE :search`, { search: '%Port%' })
+  .where(`product.${column} LIKE :search`, { search: '%Port%' })
   .getMany();
 ```
 
-### Type-Safe Where Clauses
-
-Use `i18nWhere<T>()` and `i18nWhereMany<T>()` to avoid `as any` type assertions:
+## Type Helpers
 
 ```typescript
 import { i18nWhere, i18nWhereMany } from '@sebsastianek/typeorm-i18n';
 
-const repo = getI18nRepository(Product, dataSource);
-repo.setLanguage('es');
-
-// Single condition - type-safe!
+// Single condition
 const products = await repo.find({
-  where: i18nWhere<Product>({ name: 'Portátil', isActive: true })
+  where: i18nWhere<Product>({ name: 'Portátil' })
 });
 
-// OR conditions - type-safe!
-const multiProducts = await repo.find({
+// OR conditions
+const products = await repo.find({
   where: i18nWhereMany<Product>([
     { name: 'Portátil' },
     { name: 'Ratón' }
@@ -206,81 +182,114 @@ const multiProducts = await repo.find({
 });
 ```
 
-### Column-Level Configuration Override
-
-You can override global configuration per column:
+## Per-Column Language Override
 
 ```typescript
 @Entity()
 export class Article {
-  // Uses global configuration
-  @I18nColumn({
-    type: 'varchar',
-    length: 255,
-  })
-  title: I18nValue<SupportedLanguages, string>;
+  @I18nColumn({ type: 'varchar', length: 255 })
+  title!: string;  // Uses global config
 
-  // Override with different languages for this column
+  titleTranslations?: I18nValue<'en' | 'es' | 'fr', string>;
+
   @I18nColumn({
-    languages: ['en', 'de', 'ja'],
+    languages: ['en', 'de', 'ja'],  // Override
     default_language: 'en',
     type: 'text',
   })
-  content: I18nValue<'en' | 'de' | 'ja', string>;
+  content!: string;
+
+  contentTranslations?: I18nValue<'en' | 'de' | 'ja', string>;
 }
 ```
 
-### Working with Binary Data
+## Binary Data
 
 ```typescript
-type Languages = 'en' | 'es' | 'fr';
-
 @Entity()
 export class Document {
-  @I18nColumn({
-    type: 'blob',  // Use 'bytea' for PostgreSQL
-  })
-  file: I18nValue<Languages, Buffer>;
+  @I18nColumn({ type: 'blob' })  // 'bytea' for PostgreSQL
+  file!: Buffer;
+
+  fileTranslations?: I18nValue<'en' | 'es', Buffer>;
 }
 
-// Usage
 const doc = new Document();
-doc.file = {
-  en: Buffer.from('English content'),
-  es: Buffer.from('Contenido en español'),
-  fr: Buffer.from('Contenu français'),
+doc.fileTranslations = {
+  en: Buffer.from('English'),
+  es: Buffer.from('Español'),
 };
+await repo.save(doc);
 ```
 
-### Helper Functions
+## NestJS Integration
+
+### Module Setup
 
 ```typescript
-import {
-  createI18nValue,
-  getTranslation,
-  flattenI18nValue,
-} from '@sebsastianek/typeorm-i18n';
+import { Module, NestModule, MiddlewareConsumer } from '@nestjs/common';
+import { TypeOrmModule } from '@nestjs/typeorm';
+import { I18nSubscriber } from '@sebsastianek/typeorm-i18n';
+import { I18nModule } from '@sebsastianek/typeorm-i18n/nestjs';
 
-// Create an I18nValue object
-const name = createI18nValue<'en' | 'es' | 'fr', string>({
-  en: 'Hello',
-  es: 'Hola',
-  fr: 'Bonjour',
-});
+@Module({
+  imports: [
+    TypeOrmModule.forRoot({
+      subscribers: [I18nSubscriber],
+    }),
+    I18nModule.forRoot({
+      languages: ['en', 'es', 'fr'],
+      defaultLanguage: 'en',
+      resolveLanguage: (req) => req.headers['accept-language']?.split(',')[0] || null,
+    }),
+    I18nModule.forFeature([Product]),
+  ],
+})
+export class AppModule implements NestModule {
+  configure(consumer: MiddlewareConsumer) {
+    I18nModule.configure(consumer);
+  }
+}
+```
 
-// Get translation with fallback
-const translation = getTranslation(name, 'es', 'en');  // Returns 'Hola'
+### Service Usage
 
-// Flatten to database format
-const flattened = flattenI18nValue('name', name, 'en');
-// Returns: { name: 'Hello', name_es: 'Hola', name_fr: 'Bonjour' }
+```typescript
+import { Injectable } from '@nestjs/common';
+import { I18nRepository } from '@sebsastianek/typeorm-i18n';
+import { InjectI18nRepository } from '@sebsastianek/typeorm-i18n/nestjs';
+
+@Injectable()
+export class ProductService {
+  constructor(
+    @InjectI18nRepository(Product)
+    private readonly productRepo: I18nRepository<Product>,
+  ) {}
+
+  async findAll() {
+    // Language set from request via middleware
+    return this.productRepo.find();
+  }
+}
+```
+
+### Async Configuration
+
+```typescript
+I18nModule.forRootAsync({
+  imports: [ConfigModule],
+  useFactory: (config: ConfigService) => ({
+    languages: config.get('I18N_LANGUAGES').split(','),
+    defaultLanguage: config.get('I18N_DEFAULT'),
+    resolveLanguage: (req) => req.user?.language || null,
+  }),
+  inject: [ConfigService],
+})
 ```
 
 ## API Reference
 
-### `setI18nConfig(config: I18nGlobalConfig)`
-
-Set global configuration for all I18nColumn decorators.
+### `setI18nConfig(config)`
 
 ```typescript
 setI18nConfig({
@@ -289,62 +298,37 @@ setI18nConfig({
 });
 ```
 
-### `@I18nColumn(options: I18nColumnOptions)`
+### `@I18nColumn(options)`
 
-Decorator for multilingual columns. Combines both TypeORM `@Column` and i18n functionality.
+Options:
+- `type` (required): Column type ('varchar', 'text', 'blob', etc.)
+- `languages`: Language codes array (defaults to global config)
+- `default_language`: Default language (defaults to global config)
+- `length`: Column length
+- `nullable`: Allow null values
+- Other TypeORM ColumnOptions
 
-**Options:**
-- `type` (required): Database column type ('varchar', 'text', 'int', 'blob', etc.)
-- `languages` (optional): Array of language codes (uses global config if not provided)
-- `default_language` (optional): Default language code (uses global config if not provided)
-- `length` (optional): Column length for varchar types
-- `nullable` (optional): Whether column is nullable
-- All other TypeORM ColumnOptions are supported
+### `getI18nRepository<Entity>(entity, dataSource)`
 
-### `getI18nRepository<Entity>(entity, dataSource, defaultLanguage?)`
+Returns `I18nRepository` with methods:
+- `setLanguage(lang)`: Set query language
+- `getLanguage()`: Get current language
+- `clearLanguage()`: Reset to default
+- `getLanguageColumn(property)`: Get column name for current language
+- `createQueryBuilder(alias)`: Returns `I18nQueryBuilder`
+- Standard TypeORM Repository methods
 
-Create an I18nRepository instance with language context support.
+### `prepareI18nUpdate(entity)`
 
-**Methods:**
-- `setLanguage(lang: string)`: Set current language for queries (chainable, case-insensitive)
-- `getLanguage()`: Get current language (always lowercase)
-- `clearLanguage()`: Clear language context
-- `getLanguageColumn(propertyName: string)`: Get database column name for current language
-- `createQueryBuilder(alias?)`: Returns an `I18nQueryBuilder` with language-aware methods
-- All standard TypeORM Repository methods (find, findOne, findBy, etc.)
-
-### `I18nQueryBuilder<Entity>`
-
-Extended QueryBuilder with language-aware helper methods:
-
-- `whereLanguage(property, operator, value)`: Add WHERE clause using current language column
-- `andWhereLanguage(property, operator, value)`: Add AND WHERE clause
-- `orWhereLanguage(property, operator, value)`: Add OR WHERE clause
-- `orderByLanguage(property, 'ASC' | 'DESC')`: Order by language column
-- `addOrderByLanguage(property, 'ASC' | 'DESC')`: Add secondary order
-- `selectLanguage([properties])`: Select language columns
-- `addSelectLanguage([properties])`: Add language columns to selection
-
-### `i18nWhere<T>(where)`
-
-Type-safe helper for where clauses. Converts `I18nValue` properties to their base types.
+Copies `propertyTranslations` values to raw columns. Required before `save()` when updating translations. TypeORM change detection compares raw column values.
 
 ```typescript
-// Instead of: { name: 'Laptop' } as any
-i18nWhere<Product>({ name: 'Laptop' })  // Type-safe!
-```
-
-### `i18nWhereMany<T>(whereClauses)`
-
-Type-safe helper for OR conditions.
-
-```typescript
-i18nWhereMany<Product>([{ name: 'Laptop' }, { name: 'Mouse' }])
+entity.nameTranslations = { en: 'New', es: 'Nuevo', fr: 'Nouveau' };
+prepareI18nUpdate(entity);
+await repo.save(entity);
 ```
 
 ### `I18nValue<TLang, TValue>`
-
-Type representing multilingual values.
 
 ```typescript
 type I18nValue<TLang extends string, TValue = string> = {
@@ -352,49 +336,24 @@ type I18nValue<TLang extends string, TValue = string> = {
 };
 ```
 
+## Database Schema
+
+For `@I18nColumn` with languages `['en', 'es', 'fr']` and default `'en'`:
+
+| Column | Type | Nullable |
+|--------|------|----------|
+| `name` | varchar(255) | No |
+| `name_es` | varchar(255) | Yes |
+| `name_fr` | varchar(255) | Yes |
+
 ## Testing
 
-The library includes comprehensive E2E tests with real databases.
-
 ```bash
-# Run tests with SQLite (default)
-npm test
-
-# Run tests with PostgreSQL
-DB_TYPE=postgres npm test
-
-# Run tests with MySQL
-DB_TYPE=mysql npm test
+npm test                    # SQLite
+DB_TYPE=postgres npm test   # PostgreSQL
+DB_TYPE=mysql npm test      # MySQL
 ```
-
-## Database Schema Example
-
-For this entity:
-
-```typescript
-@Entity()
-class Product {
-  @I18nColumn({ type: 'varchar', length: 255 })
-  name: I18nValue<'en' | 'es' | 'fr', string>;
-}
-```
-
-The following columns are created:
-
-| Column Name | Type | Nullable | Description |
-|-------------|------|----------|-------------|
-| `name` | varchar(255) | No | English (default) |
-| `name_es` | varchar(255) | Yes | Spanish |
-| `name_fr` | varchar(255) | Yes | French |
 
 ## License
 
 MIT
-
-## Contributing
-
-Contributions are welcome! Please ensure all tests pass before submitting a PR.
-
-```bash
-npm test
-```

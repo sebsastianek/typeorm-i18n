@@ -3,6 +3,7 @@ import { i18nMetadataStorage } from './metadata';
 import { LANGUAGE_DELIMITER } from './constants';
 import { I18nQueryBuilder, createI18nQueryBuilder } from './query-builder';
 import { normalizeLanguageCode } from './language-utils';
+import { transformAfterLoad } from './utils';
 
 /**
  * Extended repository with i18n support.
@@ -58,19 +59,23 @@ export class I18nRepository<Entity extends object> extends Repository<Entity> {
   }
 
   /**
-   * Find entities with automatic language column mapping
+   * Find entities with automatic language column mapping.
+   * Loaded entities will have their i18n properties set based on current language.
    */
   override async find(options?: FindManyOptions<Entity>): Promise<Entity[]> {
     const transformedOptions = this.transformFindOptions(options);
-    return super.find(transformedOptions);
+    const entities = await super.find(transformedOptions);
+    return this.setLanguageOnEntities(entities);
   }
 
   /**
-   * Find one entity with automatic language column mapping
+   * Find one entity with automatic language column mapping.
+   * Loaded entity will have its i18n properties set based on current language.
    */
   override async findOne(options: FindOneOptions<Entity>): Promise<Entity | null> {
     const transformedOptions = this.transformFindOptions(options) || options;
-    return super.findOne(transformedOptions);
+    const entity = await super.findOne(transformedOptions);
+    return entity ? this.setLanguageOnEntity(entity) : null;
   }
 
   /**
@@ -78,7 +83,8 @@ export class I18nRepository<Entity extends object> extends Repository<Entity> {
    */
   override async findOneBy(where: FindOptionsWhere<Entity>): Promise<Entity | null> {
     const transformedWhere = this.transformWhereClause(where);
-    return super.findOneBy(transformedWhere);
+    const entity = await super.findOneBy(transformedWhere);
+    return entity ? this.setLanguageOnEntity(entity) : null;
   }
 
   /**
@@ -86,7 +92,33 @@ export class I18nRepository<Entity extends object> extends Repository<Entity> {
    */
   override async findBy(where: FindOptionsWhere<Entity>): Promise<Entity[]> {
     const transformedWhere = this.transformWhereClause(where);
-    return super.findBy(transformedWhere);
+    const entities = await super.findBy(transformedWhere);
+    return this.setLanguageOnEntities(entities);
+  }
+
+  /**
+   * Set the current language on a single entity and re-transform its i18n properties.
+   * This updates both the language symbol and the single-value properties.
+   */
+  private setLanguageOnEntity(entity: Entity): Entity {
+    if (this.currentLanguage) {
+      // Re-transform the entity with the current language to update single-value properties
+      transformAfterLoad(entity, this.currentLanguage);
+    }
+    return entity;
+  }
+
+  /**
+   * Set the current language on multiple entities
+   */
+  private setLanguageOnEntities(entities: Entity[]): Entity[] {
+    if (this.currentLanguage) {
+      for (const entity of entities) {
+        // Re-transform each entity with the current language
+        transformAfterLoad(entity, this.currentLanguage);
+      }
+    }
+    return entities;
   }
 
   /**

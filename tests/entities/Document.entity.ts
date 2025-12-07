@@ -11,20 +11,22 @@ export class Document {
   @PrimaryGeneratedColumn()
   id!: number;
 
-  // String values
   @I18nColumn({
     languages: ['en', 'es'],
     default_language: 'en',
     type: 'text',
   })
-  content!: I18nValue<DocumentLanguages, string>;
+  content!: string;
 
-  // Buffer values (blob for SQLite)
+  contentTranslations?: I18nValue<DocumentLanguages, string>;
+
   @I18nColumn({
     languages: ['en', 'es'],
     default_language: 'en',
     type: 'blob',
     nullable: true,
   })
-  binaryData!: I18nValue<DocumentLanguages, Buffer>;
+  binaryData!: Buffer;
+
+  binaryDataTranslations?: I18nValue<DocumentLanguages, Buffer>;
 }

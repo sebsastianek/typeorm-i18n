@@ -9,30 +9,44 @@
  * type SupportedLanguages = 'en' | 'es' | 'cn';
  *
  * // String values (most common)
- * const name: I18nValue<SupportedLanguages, string> = {
+ * const translations: I18nValue<SupportedLanguages, string> = {
  *   en: 'Hello',
  *   es: 'Hola',
  *   cn: '你好'
- * };
- *
- * // Buffer values for binary data
- * const image: I18nValue<SupportedLanguages, Buffer> = {
- *   en: Buffer.from('...'),
- *   es: Buffer.from('...'),
- *   cn: Buffer.from('...')
- * };
- *
- * // Number values
- * const count: I18nValue<SupportedLanguages, number> = {
- *   en: 100,
- *   es: 100,
- *   cn: 100
  * };
  * ```
  */
 export type I18nValue<TLang extends string, TValue = string> = {
   [K in TLang]: TValue;
 };
+
+/**
+ * Symbol used to store the current language on an entity instance.
+ * This is set by the I18nRepository when loading entities.
+ */
+export const I18N_LANGUAGE_KEY = Symbol('i18nLanguage');
+
+/**
+ * Symbol used to track which translations property was explicitly set.
+ * This helps determine save behavior.
+ */
+export const I18N_TRANSLATIONS_SET_KEY = Symbol('i18nTranslationsSet');
+
+/**
+ * Interface for entities with I18n support.
+ * Entities using @I18nColumn will have these internal properties set.
+ */
+export interface I18nEntity {
+  [I18N_LANGUAGE_KEY]?: string;
+  [I18N_TRANSLATIONS_SET_KEY]?: Set<string>;
+}
+
+/**
+ * Helper type to get the translations property name for a given property.
+ * @example
+ * type NameTranslations = TranslationsKey<'name'>; // 'nameTranslations'
+ */
+export type TranslationsKey<T extends string> = `${T}Translations`;
 
 /**
  * Configuration options for the @I18nColumn decorator.

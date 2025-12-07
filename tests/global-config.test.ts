@@ -6,7 +6,6 @@ describe('Global Configuration', () => {
   let dataSource: DataSource;
 
   afterEach(async () => {
-    // Reset global config after each test
     resetI18nConfig();
 
     if (dataSource && dataSource.isInitialized) {
@@ -15,7 +14,6 @@ describe('Global Configuration', () => {
   });
 
   it('should use global configuration when column options are not provided', async () => {
-    // Set global config
     setI18nConfig({
       languages: ['en', 'es', 'fr'],
       default_language: 'en',
@@ -28,30 +26,33 @@ describe('Global Configuration', () => {
       @PrimaryGeneratedColumn()
       id!: number;
 
-      // No languages specified - should use global config
       @I18nColumn({
         type: 'varchar',
         length: 255,
       })
-      name!: I18nValue<GlobalLanguages, string>;
+      name!: string;
+
+      nameTranslations?: I18nValue<GlobalLanguages, string>;
 
       @I18nColumn({
         type: 'text',
       })
-      description!: I18nValue<GlobalLanguages, string>;
+      description!: string;
+
+      descriptionTranslations?: I18nValue<GlobalLanguages, string>;
     }
 
     dataSource = await createE2EDataSource([TestProduct]);
     const repo = dataSource.getRepository(TestProduct);
 
-    // Test creating and reading
-    const product = repo.create({
-      name: {
+    const product = repo.create();
+    Object.assign(product, {
+      nameTranslations: {
         en: 'Test Product',
         es: 'Producto de Prueba',
         fr: 'Produit Test',
       },
-      description: {
+      descriptionTranslations: {
         en: 'Description',
         es: 'Descripción',
         fr: 'Description',
@@ -62,13 +63,13 @@ describe('Global Configuration', () => {
     const loaded = await repo.findOne({ where: { id: saved.id } });
 
     expect(loaded).toBeDefined();
-    expect(loaded?.name.en).toBe('Test Product');
-    expect(loaded?.name.es).toBe('Producto de Prueba');
-    expect(loaded?.name.fr).toBe('Produit Test');
+    expect(loaded?.nameTranslations?.en).toBe('Test Product');
+    expect(loaded?.nameTranslations?.es).toBe('Producto de Prueba');
+    expect(loaded?.nameTranslations?.fr).toBe('Produit Test');
+    expect(loaded?.name).toBe('Test Product'); // Default language value
   });
 
   it('should override global configuration with column-level options', async () => {
-    // Set global config
     setI18nConfig({
       languages: ['en', 'es'],
       default_language: 'en',
@@ -82,31 +83,34 @@ describe('Global Configuration', () => {
       @PrimaryGeneratedColumn()
       id!: number;
 
-      // Uses global config
       @I18nColumn({
         type: 'varchar',
         length: 255,
       })
-      title!: I18nValue<GlobalLanguages, string>;
+      title!: string;
 
-      // Overrides with custom languages
+      titleTranslations?: I18nValue<GlobalLanguages, string>;
+
       @I18nColumn({
         languages: ['en', 'de', 'ja'],
         default_language: 'en',
         type: 'text',
       })
-      content!: I18nValue<CustomLanguages, string>;
+      content!: string;
+
+      contentTranslations?: I18nValue<CustomLanguages, string>;
     }
 
     dataSource = await createE2EDataSource([TestArticle]);
     const repo = dataSource.getRepository(TestArticle);
 
-    const article = repo.create({
-      title: {
+    const article = repo.create();
+    Object.assign(article, {
+      titleTranslations: {
         en: 'Title',
         es: 'Título',
       },
-      content: {
+      contentTranslations: {
         en: 'Content',
         de: 'Inhalt',
         ja: 'コンテンツ',
@@ -117,17 +121,14 @@ describe('Global Configuration', () => {
     const loaded = await repo.findOne({ where: { id: saved.id } });
 
     expect(loaded).toBeDefined();
-    // Title uses global config (en, es)
-    expect(loaded?.title.en).toBe('Title');
-    expect(loaded?.title.es).toBe('Título');
-    // Content uses custom config (en, de, ja)
-    expect(loaded?.content.en).toBe('Content');
-    expect(loaded?.content.de).toBe('Inhalt');
-    expect(loaded?.content.ja).toBe('コンテンツ');
+    expect(loaded?.titleTranslations?.en).toBe('Title');
+    expect(loaded?.titleTranslations?.es).toBe('Título');
+    expect(loaded?.contentTranslations?.en).toBe('Content');
+    expect(loaded?.contentTranslations?.de).toBe('Inhalt');
+    expect(loaded?.contentTranslations?.ja).toBe('コンテンツ');
   });
 
   it('should throw error when no global config and no column-level config', async () => {
-    // Don't set any global config
     resetI18nConfig();
 
     type TestLanguages = 'en' | 'es';
@@ -138,20 +139,19 @@ describe('Global Configuration', () => {
         @PrimaryGeneratedColumn()
         id!: number;
 
-        // No languages specified and no global config
         @I18nColumn({
           type: 'varchar',
         })
-        name!: I18nValue<TestLanguages, string>;
+        name!: string;
+
+        nameTranslations?: I18nValue<TestLanguages, string>;
       }
 
-      // Suppress unused variable warning
       void TestEntity;
     }).toThrow('I18nColumn requires at least one language');
   });
 
   it('should support partial override (only languages)', async () => {
-    // Set global config with both languages and default_language
     setI18nConfig({
       languages: ['en', 'es', 'fr'],
       default_language: 'en',
@@ -164,20 +164,22 @@ describe('Global Configuration', () => {
       @PrimaryGeneratedColumn()
       id!: number;
 
-      // Override only languages, keep default_language from global
       @I18nColumn({
         languages: ['en', 'de'],
         type: 'varchar',
         length: 255,
       })
-      name!: I18nValue<CustomLanguages, string>;
+      name!: string;
+
+      nameTranslations?: I18nValue<CustomLanguages, string>;
     }
 
     dataSource = await createE2EDataSource([TestEntity]);
     const repo = dataSource.getRepository(TestEntity);
 
-    const entity = repo.create({
-      name: {
+    const entity = repo.create();
+    Object.assign(entity, {
+      nameTranslations: {
         en: 'English',
         de: 'Deutsch',
       },
@@ -187,8 +189,8 @@ describe('Global Configuration', () => {
     const loaded = await repo.findOne({ where: { id: saved.id } });
 
     expect(loaded).toBeDefined();
-    expect(loaded?.name.en).toBe('English');
-    expect(loaded?.name.de).toBe('Deutsch');
+    expect(loaded?.nameTranslations?.en).toBe('English');
+    expect(loaded?.nameTranslations?.de).toBe('Deutsch');
   });
 
   it('should verify schema has correct columns with global config', async () => {
@@ -208,15 +210,16 @@ describe('Global Configuration', () => {
         type: 'varchar',
         length: 255,
       })
-      name!: I18nValue<GlobalLanguages, string>;
+      name!: string;
+
+      nameTranslations?: I18nValue<GlobalLanguages, string>;
     }
 
     dataSource = await createE2EDataSource([TestEntity]);
     const metadata = dataSource.getRepository(TestEntity).metadata;
     const columnNames = metadata.columns.map((col) => col.databaseName);
 
-    // Should have base column and translation columns
-    expect(columnNames).toContain('name'); // default (en)
+    expect(columnNames).toContain('name');
     expect(columnNames).toContain('name_es');
     expect(columnNames).toContain('name_fr');
   });

@@ -3,12 +3,12 @@ import { I18nValue } from '../../src';
 
 export const productFixtures: Partial<Product>[] = [
   {
-    name: {
+    nameTranslations: {
       en: 'Laptop',
       es: 'Portátil',
       fr: 'Ordinateur portable',
     } as I18nValue<ProductLanguages, string>,
-    description: {
+    descriptionTranslations: {
       en: 'High-performance laptop with SSD',
       es: 'Portátil de alto rendimiento con SSD',
       fr: 'Ordinateur portable haute performance avec SSD',
@@ -17,12 +17,12 @@ export const productFixtures: Partial<Product>[] = [
     isActive: true,
   },
   {
-    name: {
+    nameTranslations: {
       en: 'Mouse',
       es: 'Ratón',
       fr: 'Souris',
     } as I18nValue<ProductLanguages, string>,
-    description: {
+    descriptionTranslations: {
       en: 'Wireless optical mouse',
       es: 'Ratón óptico inalámbrico',
       fr: 'Souris optique sans fil',
@@ -31,12 +31,12 @@ export const productFixtures: Partial<Product>[] = [
     isActive: true,
   },
   {
-    name: {
+    nameTranslations: {
       en: 'Keyboard',
       es: 'Teclado',
       fr: 'Clavier',
     } as I18nValue<ProductLanguages, string>,
-    description: {
+    descriptionTranslations: {
       en: 'Mechanical gaming keyboard',
       es: 'Teclado mecánico para juegos',
       fr: 'Clavier mécanique de jeu',

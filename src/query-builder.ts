@@ -1,6 +1,7 @@
 import { SelectQueryBuilder, ObjectLiteral } from 'typeorm';
 import { i18nMetadataStorage } from './metadata';
 import { LANGUAGE_DELIMITER } from './constants';
+import { transformAfterLoad } from './utils';
 
 /**
  * Extended QueryBuilder with i18n-aware helper methods.
@@ -230,6 +231,44 @@ export class I18nQueryBuilder<Entity extends ObjectLiteral> extends SelectQueryB
       this.addSelect(this.buildColumnRef(prop));
     }
     return this;
+  }
+
+  /**
+   * Get many entities with language-aware transformation.
+   * Overrides the base getMany to apply language context to loaded entities.
+   */
+  override async getMany(): Promise<Entity[]> {
+    const entities = await super.getMany();
+    if (this.__i18nLanguage) {
+      for (const entity of entities) {
+        transformAfterLoad(entity, this.__i18nLanguage);
+      }
+    }
+    return entities;
+  }
+
+  /**
+   * Get one entity with language-aware transformation.
+   * Overrides the base getOne to apply language context to loaded entity.
+   */
+  override async getOne(): Promise<Entity | null> {
+    const entity = await super.getOne();
+    if (entity && this.__i18nLanguage) {
+      transformAfterLoad(entity, this.__i18nLanguage);
+    }
+    return entity;
+  }
+
+  /**
+   * Get one entity or fail with language-aware transformation.
+   * Overrides the base getOneOrFail to apply language context to loaded entity.
+   */
+  override async getOneOrFail(): Promise<Entity> {
+    const entity = await super.getOneOrFail();
+    if (this.__i18nLanguage) {
+      transformAfterLoad(entity, this.__i18nLanguage);
+    }
+    return entity;
   }
 }
 

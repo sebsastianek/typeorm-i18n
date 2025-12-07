@@ -14,14 +14,18 @@ export class Article {
     type: 'varchar',
     length: 500,
   })
-  title!: I18nValue<ArticleLanguages, string>;
+  title!: string;
+
+  titleTranslations?: I18nValue<ArticleLanguages, string>;
 
   @I18nColumn({
     languages: ['en', 'de', 'ja'],
     default_language: 'en',
     type: 'text',
   })
-  content!: I18nValue<ArticleLanguages, string>;
+  content!: string;
+
+  contentTranslations?: I18nValue<ArticleLanguages, string>;
 
   @Column({ type: 'integer', nullable: true })
   viewCount!: number;

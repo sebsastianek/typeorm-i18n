@@ -9,11 +9,18 @@
  */
 
 // Export types
-export type { I18nValue, I18nColumnOptions, I18nColumnMetadata, I18nWhere } from './types';
+export type {
+  I18nValue,
+  I18nColumnOptions,
+  I18nColumnMetadata,
+  I18nWhere,
+  I18nEntity,
+  TranslationsKey,
+} from './types';
 export type { I18nGlobalConfig } from './config';
 
-// Export type helpers
-export { i18nWhere, i18nWhereMany } from './types';
+// Export type helpers and symbols
+export { i18nWhere, i18nWhereMany, I18N_LANGUAGE_KEY } from './types';
 
 // Export decorator
 export { I18nColumn, getTranslationColumnName } from './decorator';
@@ -28,6 +35,7 @@ export {
   flattenI18nValue,
   transformAfterLoad,
   transformBeforeSave,
+  prepareI18nUpdate,
 } from './utils';
 
 // Language utilities are internal - language codes are normalized automatically

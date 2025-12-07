@@ -12,7 +12,7 @@ import { createE2EDataSource, closeE2EDataSource, seedDatabase } from './db-help
 import { Product } from './entities/Product.entity';
 import { productFixtures } from './fixtures/product.fixtures';
 
-describe('New Features', () => {
+describe('QueryBuilder and Type Helpers', () => {
   let dataSource: DataSource;
 
   beforeAll(() => {
@@ -49,8 +49,8 @@ describe('New Features', () => {
           .getMany();
 
         expect(products).toHaveLength(1);
-        expect(products[0].name.en).toBe('Laptop');
-        expect(products[0].name.es).toBe('Portátil');
+        expect(products[0].nameTranslations?.en).toBe('Laptop');
+        expect(products[0].nameTranslations?.es).toBe('Portátil');
       });
 
       it('should query using the default language when language is set to default', async () => {
@@ -63,7 +63,7 @@ describe('New Features', () => {
           .getMany();
 
         expect(products).toHaveLength(1);
-        expect(products[0].name.en).toBe('Laptop');
+        expect(products[0].nameTranslations?.en).toBe('Laptop');
       });
 
       it('should work with LIKE operator', async () => {
@@ -76,7 +76,7 @@ describe('New Features', () => {
           .getMany();
 
         expect(products).toHaveLength(1);
-        expect(products[0].name.es).toBe('Portátil');
+        expect(products[0].nameTranslations?.es).toBe('Portátil');
       });
 
       it('should work with != operator', async () => {
@@ -89,7 +89,7 @@ describe('New Features', () => {
           .getMany();
 
         expect(products.length).toBeGreaterThan(0);
-        products.forEach((p) => expect(p.name.es).not.toBe('Portátil'));
+        products.forEach((p) => expect(p.nameTranslations?.es).not.toBe('Portátil'));
       });
     });
 
@@ -105,7 +105,7 @@ describe('New Features', () => {
           .getMany();
 
         expect(products).toHaveLength(1);
-        expect(products[0].name.es).toBe('Ratón');
+        expect(products[0].nameTranslations?.es).toBe('Ratón');
         expect(products[0].isActive).toBe(true);
       });
 
@@ -120,7 +120,7 @@ describe('New Features', () => {
           .getMany();
 
         expect(products).toHaveLength(1);
-        expect(products[0].name.es).toBe('Ratón');
+        expect(products[0].nameTranslations?.es).toBe('Ratón');
       });
     });
 
@@ -136,7 +136,7 @@ describe('New Features', () => {
           .getMany();
 
         expect(products).toHaveLength(2);
-        const names = products.map((p) => p.name.es);
+        const names = products.map((p) => p.nameTranslations?.es);
         expect(names).toContain('Portátil');
         expect(names).toContain('Ratón');
       });
@@ -154,7 +154,7 @@ describe('New Features', () => {
 
         expect(products.length).toBeGreaterThan(0);
         // Verify ordering is applied (first product should come before last alphabetically)
-        const names = products.map((p) => p.name.es);
+        const names = products.map((p) => p.nameTranslations?.es);
         const sortedNames = [...names].sort();
         expect(names).toEqual(sortedNames);
       });
@@ -169,7 +169,7 @@ describe('New Features', () => {
           .getMany();
 
         expect(products.length).toBeGreaterThan(0);
-        const names = products.map((p) => p.name.es);
+        const names = products.map((p) => p.nameTranslations?.es);
         const sortedNames = [...names].sort().reverse();
         expect(names).toEqual(sortedNames);
       });
@@ -262,7 +262,7 @@ describe('New Features', () => {
           .getMany();
 
         expect(products).toHaveLength(1);
-        expect(products[0].name.en).toBe('Laptop');
+        expect(products[0].nameTranslations?.en).toBe('Laptop');
       });
 
       it('should return empty array when no matches found', async () => {
@@ -356,7 +356,7 @@ describe('New Features', () => {
         });
 
         expect(products).toHaveLength(1);
-        expect(products[0].name.es).toBe('Portátil');
+        expect(products[0].nameTranslations?.es).toBe('Portátil');
       });
 
       it('should work with multiple conditions', async () => {
@@ -371,7 +371,7 @@ describe('New Features', () => {
         });
 
         expect(products).toHaveLength(1);
-        expect(products[0].name.es).toBe('Ratón');
+        expect(products[0].nameTranslations?.es).toBe('Ratón');
       });
 
       it('should work with findOne', async () => {
@@ -383,7 +383,7 @@ describe('New Features', () => {
         });
 
         expect(product).toBeDefined();
-        expect(product?.name.es).toBe('Teclado');
+        expect(product?.nameTranslations?.es).toBe('Teclado');
       });
 
       it('should work with findOneBy', async () => {
@@ -395,7 +395,7 @@ describe('New Features', () => {
         );
 
         expect(product).toBeDefined();
-        expect(product?.name.fr).toBe('Ordinateur portable');
+        expect(product?.nameTranslations?.fr).toBe('Ordinateur portable');
       });
     });
 
@@ -409,7 +409,7 @@ describe('New Features', () => {
         });
 
         expect(products).toHaveLength(2);
-        const names = products.map((p) => p.name.es);
+        const names = products.map((p) => p.nameTranslations?.es);
         expect(names).toContain('Portátil');
         expect(names).toContain('Ratón');
       });
@@ -469,7 +469,7 @@ describe('New Features', () => {
         );
 
         expect(products).toHaveLength(1);
-        expect(products[0].name.es).toBe('Portátil');
+        expect(products[0].nameTranslations?.es).toBe('Portátil');
       });
 
       it('should return null when findOne has no match', async () => {
@@ -492,7 +492,7 @@ describe('New Features', () => {
         });
 
         expect(products).toHaveLength(1);
-        expect(products[0].name.en).toBe('Laptop');
+        expect(products[0].nameTranslations?.en).toBe('Laptop');
       });
 
       it('should work with numeric comparisons on non-i18n fields', async () => {
@@ -559,7 +559,7 @@ describe('New Features', () => {
         });
 
         expect(products).toHaveLength(1);
-        expect(products[0].name.es).toBe('Portátil');
+        expect(products[0].nameTranslations?.es).toBe('Portátil');
       });
 
       it('should normalize mixed case language codes', async () => {
@@ -579,7 +579,7 @@ describe('New Features', () => {
           .getMany();
 
         expect(products).toHaveLength(1);
-        expect(products[0].name.es).toBe('Ratón');
+        expect(products[0].nameTranslations?.es).toBe('Ratón');
       });
     });
 
@@ -643,7 +643,7 @@ describe('New Features', () => {
         });
 
         expect(products).toHaveLength(1);
-        expect(products[0].name.fr).toBe('Ordinateur portable');
+        expect(products[0].nameTranslations?.fr).toBe('Ordinateur portable');
       });
 
       it('should find products using mixed case language code', async () => {
@@ -655,7 +655,7 @@ describe('New Features', () => {
         });
 
         expect(products).toHaveLength(1);
-        expect(products[0].name.es).toBe('Ratón');
+        expect(products[0].nameTranslations?.es).toBe('Ratón');
       });
     });
   });
@@ -674,7 +674,7 @@ describe('New Features', () => {
         .getMany();
 
       expect(products).toHaveLength(1);
-      expect(products[0].name.es).toBe('Ratón');
+      expect(products[0].nameTranslations?.es).toBe('Ratón');
     });
 
     it('should allow mixing standard and language-aware methods', async () => {
@@ -748,7 +748,7 @@ describe('New Features', () => {
         where: i18nWhere<Product>({ name: 'Portátil' }),
       });
       expect(spanishProduct).not.toBeNull();
-      expect(spanishProduct?.name.en).toBe('Laptop');
+      expect(spanishProduct?.nameTranslations?.en).toBe('Laptop');
 
       // Query in French
       repo.setLanguage('fr');
@@ -756,7 +756,7 @@ describe('New Features', () => {
         where: i18nWhere<Product>({ name: 'Ordinateur portable' }),
       });
       expect(frenchProduct).not.toBeNull();
-      expect(frenchProduct?.name.en).toBe('Laptop');
+      expect(frenchProduct?.nameTranslations?.en).toBe('Laptop');
 
       // Both should be the same product
       expect(spanishProduct?.id).toBe(frenchProduct?.id);
@@ -779,11 +779,11 @@ describe('New Features', () => {
       products.forEach((p) => {
         expect(p.isActive).toBe(true);
         expect(p.price).toBeGreaterThan(10);
-        expect(p.name.es.toLowerCase()).toContain('a');
+        expect(p.nameTranslations?.es.toLowerCase()).toContain('a');
       });
 
       // Verify order
-      const names = products.map((p) => p.name.es);
+      const names = products.map((p) => p.nameTranslations?.es);
       const sortedNames = [...names].sort();
       expect(names).toEqual(sortedNames);
     });

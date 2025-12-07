@@ -59,7 +59,8 @@ describe('I18nRepository', () => {
       });
 
       expect(products).toHaveLength(1);
-      expect(products[0].name.en).toBe('Laptop');
+      expect(products[0].nameTranslations?.en).toBe('Laptop');
+      expect(products[0].name).toBe('Laptop'); // Default language in single-value prop
     });
 
     it('should query Spanish column when language is set to "es"', async () => {
@@ -71,8 +72,9 @@ describe('I18nRepository', () => {
       });
 
       expect(products).toHaveLength(1);
-      expect(products[0].name.en).toBe('Laptop');
-      expect(products[0].name.es).toBe('Portátil');
+      expect(products[0].nameTranslations?.en).toBe('Laptop');
+      expect(products[0].nameTranslations?.es).toBe('Portátil');
+      expect(products[0].name).toBe('Portátil'); // Current language in single-value prop
     });
 
     it('should query French column when language is set to "fr"', async () => {
@@ -84,8 +86,9 @@ describe('I18nRepository', () => {
       });
 
       expect(products).toHaveLength(1);
-      expect(products[0].name.en).toBe('Laptop');
-      expect(products[0].name.fr).toBe('Ordinateur portable');
+      expect(products[0].nameTranslations?.en).toBe('Laptop');
+      expect(products[0].nameTranslations?.fr).toBe('Ordinateur portable');
+      expect(products[0].name).toBe('Ordinateur portable');
     });
 
     it('should work with findOne', async () => {
@@ -97,8 +100,9 @@ describe('I18nRepository', () => {
       });
 
       expect(product).toBeDefined();
-      expect(product?.name.en).toBe('Mouse');
-      expect(product?.name.es).toBe('Ratón');
+      expect(product?.nameTranslations?.en).toBe('Mouse');
+      expect(product?.nameTranslations?.es).toBe('Ratón');
+      expect(product?.name).toBe('Ratón');
     });
 
     it('should work with findOneBy', async () => {
@@ -108,7 +112,8 @@ describe('I18nRepository', () => {
       const product = await repo.findOneBy({ name: 'Ratón' } as any);
 
       expect(product).toBeDefined();
-      expect(product?.name.en).toBe('Mouse');
+      expect(product?.nameTranslations?.en).toBe('Mouse');
+      expect(product?.name).toBe('Ratón');
     });
 
     it('should work with findBy', async () => {
@@ -118,7 +123,8 @@ describe('I18nRepository', () => {
       const products = await repo.findBy({ name: 'Teclado' } as any);
 
       expect(products).toHaveLength(1);
-      expect(products[0].name.en).toBe('Keyboard');
+      expect(products[0].nameTranslations?.en).toBe('Keyboard');
+      expect(products[0].name).toBe('Teclado');
     });
 
     it('should not affect non-i18n columns', async () => {
@@ -145,7 +151,7 @@ describe('I18nRepository', () => {
       });
 
       expect(products).toHaveLength(1);
-      expect(products[0].name.es).toBe('Ratón');
+      expect(products[0].nameTranslations?.es).toBe('Ratón');
       expect(products[0].isActive).toBe(true);
     });
   });
@@ -193,7 +199,7 @@ describe('I18nRepository', () => {
         .getMany();
 
       expect(products).toHaveLength(1);
-      expect(products[0].name.es).toBe('Ratón');
+      expect(products[0].nameTranslations?.es).toBe('Ratón');
     });
   });
 
@@ -205,16 +211,19 @@ describe('I18nRepository', () => {
       repo.setLanguage('en');
       let product = await repo.findOne({ where: { name: 'Laptop' } as any });
       expect(product).toBeDefined();
+      expect(product?.name).toBe('Laptop');
 
       // Switch to Spanish
       repo.setLanguage('es');
       product = await repo.findOne({ where: { name: 'Portátil' } as any });
       expect(product).toBeDefined();
+      expect(product?.name).toBe('Portátil');
 
       // Switch to French
       repo.setLanguage('fr');
       product = await repo.findOne({ where: { name: 'Ordinateur portable' } as any });
       expect(product).toBeDefined();
+      expect(product?.name).toBe('Ordinateur portable');
     });
 
     it('should clear language and revert to default behavior', async () => {
