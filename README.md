@@ -283,6 +283,43 @@ I18nModule.forRootAsync({
 })
 ```
 
+### Language Resolvers
+
+Built-in resolver functions for common use cases:
+
+```typescript
+import {
+  fromHeader,
+  fromQuery,
+  fromCookie,
+  fromJwtPayload,
+  chain,
+  validated,
+} from '@sebsastianek/typeorm-i18n/nestjs';
+
+I18nModule.forRoot({
+  languages: ['en', 'es', 'fr'],
+  defaultLanguage: 'en',
+  resolveLanguage: chain(
+    fromQuery('lang'),              // ?lang=es
+    fromHeader('x-language'),       // X-Language: es
+    fromCookie('user_lang'),        // Cookie: user_lang=es
+    fromJwtPayload('language'),     // JWT { language: 'es' }
+    fromHeader('accept-language'),  // Accept-Language: es-ES,es;q=0.9
+  ),
+})
+
+// Validate against allowed languages
+I18nModule.forRoot({
+  languages: ['en', 'es', 'fr'],
+  defaultLanguage: 'en',
+  resolveLanguage: validated(
+    chain(fromQuery('lang'), fromHeader('accept-language')),
+    ['en', 'es', 'fr'],  // Only allow these languages
+  ),
+})
+```
+
 ## API Reference
 
 ### `setI18nConfig(config)`
