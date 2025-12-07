@@ -12,6 +12,22 @@ import {
   fromCookie,
   chain,
   validated,
+  // CQRS
+  WithLanguage,
+  withLanguageFrom,
+  setLanguageFrom,
+  createLanguageHandler,
+  I18nHandler,
+  I18nLanguage,
+  I18nAwareHandler,
+  // Microservices
+  extractLanguageFromPayload,
+  extractLanguageFromKafka,
+  extractLanguageFromRabbitMQ,
+  extractLanguageFromGrpc,
+  extractLanguage,
+  withMessageLanguage,
+  applyMessageLanguage,
 } from '../src/nestjs';
 import { I18nLanguageMiddleware } from '../src/nestjs/i18n-language.middleware';
 import { I18nModule } from '../src/nestjs/i18n.module';
@@ -712,6 +728,525 @@ describe('NestJS Integration', () => {
 
         // Invalid language filtered out
         expect(await resolver({ query: { lang: 'de' } })).toBeNull();
+      });
+    });
+  });
+
+  describe('CQRS Support', () => {
+    let dataSource: DataSource;
+
+    beforeAll(() => {
+      setI18nConfig({
+        languages: ['en', 'es', 'fr'],
+        default_language: 'en',
+      });
+    });
+
+    afterAll(() => {
+      resetI18nConfig();
+    });
+
+    beforeEach(async () => {
+      dataSource = await createE2EDataSource([Product]);
+      await seedDatabase(dataSource, Product, productFixtures);
+    });
+
+    afterEach(async () => {
+      if (dataSource && dataSource.isInitialized) {
+        await closeE2EDataSource(dataSource);
+      }
+    });
+
+    describe('WithLanguage interface', () => {
+      it('should define language property', () => {
+        const command: WithLanguage = { language: 'es' };
+        expect(command.language).toBe('es');
+      });
+
+      it('should allow optional language', () => {
+        const command: WithLanguage = {};
+        expect(command.language).toBeUndefined();
+      });
+    });
+
+    describe('withLanguageFrom', () => {
+      it('should set language on repository from command', async () => {
+        const repo = getI18nRepository(Product, dataSource);
+        const command = { name: 'Test', language: 'es' };
+
+        withLanguageFrom(command, repo);
+
+        expect(repo.getLanguage()).toBe('es');
+      });
+
+      it('should use default language when command has no language', async () => {
+        const repo = getI18nRepository(Product, dataSource);
+        const command: WithLanguage = { language: undefined };
+
+        withLanguageFrom(command, repo, 'fr');
+
+        expect(repo.getLanguage()).toBe('fr');
+      });
+
+      it('should not set language when no language and no default', async () => {
+        const repo = getI18nRepository(Product, dataSource);
+        const command: WithLanguage = {};
+
+        withLanguageFrom(command, repo);
+
+        expect(repo.getLanguage()).toBeNull();
+      });
+
+      it('should work with actual queries', async () => {
+        const repo = getI18nRepository(Product, dataSource);
+        const command = { name: 'Portátil', language: 'es' };
+
+        withLanguageFrom(command, repo);
+
+        const products = await repo.find({ where: { name: 'Portátil' } as any });
+        expect(products).toHaveLength(1);
+        expect(products[0].name).toBe('Portátil');
+      });
+    });
+
+    describe('setLanguageFrom', () => {
+      it('should set language on language service from command', () => {
+        const languageService = new I18nLanguageService();
+        const command = { name: 'Test', language: 'fr' };
+
+        setLanguageFrom(command, languageService);
+
+        expect(languageService.getLanguage()).toBe('fr');
+      });
+
+      it('should use default language when command has no language', () => {
+        const languageService = new I18nLanguageService();
+        const command: WithLanguage = {};
+
+        setLanguageFrom(command, languageService, 'es');
+
+        expect(languageService.getLanguage()).toBe('es');
+      });
+    });
+
+    describe('createLanguageHandler', () => {
+      it('should set language before executing handler', async () => {
+        const languageService = new I18nLanguageService();
+        const handler = createLanguageHandler(languageService);
+
+        const command = { name: 'Test', language: 'es' };
+        let capturedLanguage: string | null = null;
+
+        await handler(command, async () => {
+          capturedLanguage = languageService.getLanguage();
+          return 'result';
+        });
+
+        expect(capturedLanguage).toBe('es');
+      });
+
+      it('should return handler result', async () => {
+        const languageService = new I18nLanguageService();
+        const handler = createLanguageHandler(languageService);
+
+        const result = await handler({ language: 'es' }, async () => {
+          return { id: 1, name: 'Product' };
+        });
+
+        expect(result).toEqual({ id: 1, name: 'Product' });
+      });
+    });
+
+    describe('I18nHandler base class', () => {
+      it('should provide executeWithLanguage method', async () => {
+        const languageService = new I18nLanguageService();
+
+        class TestHandler extends I18nHandler {
+          async execute(command: WithLanguage) {
+            return this.executeWithLanguage(command, async () => {
+              return this.languageService.getLanguage();
+            });
+          }
+        }
+
+        const handler = new TestHandler(languageService, 'en');
+        const result = await handler.execute({ language: 'fr' });
+
+        expect(result).toBe('fr');
+      });
+
+      it('should use default language when command has none', async () => {
+        const languageService = new I18nLanguageService();
+
+        class TestHandler extends I18nHandler {
+          async execute(command: WithLanguage) {
+            return this.executeWithLanguage(command, async () => {
+              return this.languageService.getLanguage();
+            });
+          }
+        }
+
+        const handler = new TestHandler(languageService, 'es');
+        const result = await handler.execute({});
+
+        expect(result).toBe('es');
+      });
+    });
+
+    describe('@I18nLanguage() method decorator', () => {
+      it('should extract language from command and set on service', async () => {
+        const languageService = new I18nLanguageService();
+
+        class TestHandler {
+          i18nLanguageService = languageService;
+
+          @I18nLanguage()
+          async execute(_command: WithLanguage) {
+            return this.i18nLanguageService.getLanguage();
+          }
+        }
+
+        const handler = new TestHandler();
+        const result = await handler.execute({ language: 'es' });
+
+        expect(result).toBe('es');
+      });
+
+      it('should work with custom field name', async () => {
+        const languageService = new I18nLanguageService();
+
+        class TestHandler {
+          languageService = languageService;
+
+          @I18nLanguage({ field: 'lang' })
+          async execute(_command: { lang?: string }) {
+            return this.languageService.getLanguage();
+          }
+        }
+
+        const handler = new TestHandler();
+        const result = await handler.execute({ lang: 'fr' });
+
+        expect(result).toBe('fr');
+      });
+
+      it('should use default language when command has none', async () => {
+        const languageService = new I18nLanguageService();
+
+        class TestHandler {
+          languageService = languageService;
+
+          @I18nLanguage({ defaultLanguage: 'de' })
+          async execute(_command: WithLanguage) {
+            return this.languageService.getLanguage();
+          }
+        }
+
+        const handler = new TestHandler();
+        const result = await handler.execute({});
+
+        expect(result).toBe('de');
+      });
+
+      it('should work with repositories', async () => {
+        const languageService = new I18nLanguageService();
+        const repo = getI18nRepository(Product, dataSource);
+
+        class TestHandler {
+          i18nLanguageService = languageService;
+
+          @I18nLanguage()
+          async execute(_command: WithLanguage) {
+            // Manually sync repo with service (in real NestJS this is automatic)
+            const lang = this.i18nLanguageService.getLanguage();
+            if (lang) repo.setLanguage(lang);
+            return repo.find({ where: { name: 'Portátil' } as any });
+          }
+        }
+
+        const handler = new TestHandler();
+        const products = await handler.execute({ language: 'es' });
+
+        expect(products).toHaveLength(1);
+        expect(products[0].name).toBe('Portátil');
+      });
+    });
+
+    describe('@I18nAwareHandler() class decorator', () => {
+      it('should wrap execute method to extract language', async () => {
+        const languageService = new I18nLanguageService();
+
+        @I18nAwareHandler()
+        class TestHandler {
+          languageService = languageService;
+
+          async execute(_command: WithLanguage) {
+            return this.languageService.getLanguage();
+          }
+        }
+
+        const handler = new TestHandler();
+        const result = await handler.execute({ language: 'fr' });
+
+        expect(result).toBe('fr');
+      });
+
+      it('should work with custom options', async () => {
+        const languageService = new I18nLanguageService();
+
+        @I18nAwareHandler({ field: 'locale', defaultLanguage: 'en' })
+        class TestHandler {
+          languageService = languageService;
+
+          async execute(_command: { locale?: string }) {
+            return this.languageService.getLanguage();
+          }
+        }
+
+        const handler = new TestHandler();
+
+        // With locale
+        expect(await handler.execute({ locale: 'es' })).toBe('es');
+
+        // Without locale (uses default)
+        const handler2 = new TestHandler();
+        expect(await handler2.execute({})).toBe('en');
+      });
+    });
+  });
+
+  describe('Microservices Support', () => {
+    let dataSource: DataSource;
+
+    beforeAll(() => {
+      setI18nConfig({
+        languages: ['en', 'es', 'fr'],
+        default_language: 'en',
+      });
+    });
+
+    afterAll(() => {
+      resetI18nConfig();
+    });
+
+    beforeEach(async () => {
+      dataSource = await createE2EDataSource([Product]);
+      await seedDatabase(dataSource, Product, productFixtures);
+    });
+
+    afterEach(async () => {
+      if (dataSource && dataSource.isInitialized) {
+        await closeE2EDataSource(dataSource);
+      }
+    });
+
+    describe('extractLanguageFromPayload', () => {
+      it('should extract language from payload', () => {
+        const payload = { name: 'Test', language: 'es' };
+        expect(extractLanguageFromPayload(payload)).toBe('es');
+      });
+
+      it('should use custom field name', () => {
+        const payload = { name: 'Test', lang: 'fr' };
+        expect(extractLanguageFromPayload(payload, { payloadField: 'lang' })).toBe('fr');
+      });
+
+      it('should return null when field is missing', () => {
+        const payload = { name: 'Test' };
+        expect(extractLanguageFromPayload(payload)).toBeNull();
+      });
+
+      it('should return null for non-object payload', () => {
+        expect(extractLanguageFromPayload(null)).toBeNull();
+        expect(extractLanguageFromPayload('string')).toBeNull();
+        expect(extractLanguageFromPayload(123)).toBeNull();
+      });
+    });
+
+    describe('extractLanguageFromKafka', () => {
+      it('should extract language from Kafka headers', () => {
+        const context = {
+          getMessage: () => ({
+            headers: { 'x-language': 'es' },
+          }),
+        };
+        expect(extractLanguageFromKafka(context)).toBe('es');
+      });
+
+      it('should handle Buffer headers', () => {
+        const context = {
+          getMessage: () => ({
+            headers: { 'x-language': Buffer.from('fr') },
+          }),
+        };
+        expect(extractLanguageFromKafka(context)).toBe('fr');
+      });
+
+      it('should use custom header field', () => {
+        const context = {
+          getMessage: () => ({
+            headers: { 'language': 'es' },
+          }),
+        };
+        expect(extractLanguageFromKafka(context, 'language')).toBe('es');
+      });
+
+      it('should return null when header is missing', () => {
+        const context = {
+          getMessage: () => ({ headers: {} }),
+        };
+        expect(extractLanguageFromKafka(context)).toBeNull();
+      });
+
+      it('should handle missing context methods', () => {
+        expect(extractLanguageFromKafka({})).toBeNull();
+        expect(extractLanguageFromKafka(null)).toBeNull();
+      });
+    });
+
+    describe('extractLanguageFromRabbitMQ', () => {
+      it('should extract language from RabbitMQ headers', () => {
+        const context = {
+          getMessage: () => ({
+            properties: {
+              headers: { 'x-language': 'es' },
+            },
+          }),
+        };
+        expect(extractLanguageFromRabbitMQ(context)).toBe('es');
+      });
+
+      it('should use custom header field', () => {
+        const context = {
+          getMessage: () => ({
+            properties: {
+              headers: { 'lang': 'fr' },
+            },
+          }),
+        };
+        expect(extractLanguageFromRabbitMQ(context, 'lang')).toBe('fr');
+      });
+
+      it('should return null when header is missing', () => {
+        const context = {
+          getMessage: () => ({
+            properties: { headers: {} },
+          }),
+        };
+        expect(extractLanguageFromRabbitMQ(context)).toBeNull();
+      });
+    });
+
+    describe('extractLanguageFromGrpc', () => {
+      it('should extract language from gRPC metadata', () => {
+        const metadata = {
+          get: (key: string) => key === 'x-language' ? ['es'] : [],
+        };
+        expect(extractLanguageFromGrpc(metadata)).toBe('es');
+      });
+
+      it('should use custom metadata key', () => {
+        const metadata = {
+          get: (key: string) => key === 'lang' ? ['fr'] : [],
+        };
+        expect(extractLanguageFromGrpc(metadata, 'lang')).toBe('fr');
+      });
+
+      it('should return null when metadata is missing', () => {
+        const metadata = {
+          get: () => [],
+        };
+        expect(extractLanguageFromGrpc(metadata)).toBeNull();
+      });
+
+      it('should handle missing get method', () => {
+        expect(extractLanguageFromGrpc({})).toBeNull();
+        expect(extractLanguageFromGrpc(null)).toBeNull();
+      });
+    });
+
+    describe('extractLanguage (universal)', () => {
+      it('should try payload first', () => {
+        const payload = { language: 'es' };
+        const context = {
+          getMessage: () => ({ headers: { 'x-language': 'fr' } }),
+        };
+        expect(extractLanguage(payload, context)).toBe('es');
+      });
+
+      it('should fall back to context when payload has no language', () => {
+        const payload = { name: 'Test' };
+        const context = {
+          getMessage: () => ({ headers: { 'x-language': 'fr' } }),
+        };
+        expect(extractLanguage(payload, context)).toBe('fr');
+      });
+
+      it('should return default when nothing found', () => {
+        const payload = { name: 'Test' };
+        expect(extractLanguage(payload, null, { defaultLanguage: 'es' })).toBe('es');
+      });
+
+      it('should use "en" as ultimate default', () => {
+        expect(extractLanguage({}, null)).toBe('en');
+      });
+    });
+
+    describe('withMessageLanguage', () => {
+      it('should set language on repository from message', async () => {
+        const repo = getI18nRepository(Product, dataSource);
+        const payload = { name: 'Test', language: 'es' };
+
+        withMessageLanguage(payload, repo);
+
+        expect(repo.getLanguage()).toBe('es');
+      });
+
+      it('should extract from context when payload has no language', async () => {
+        const repo = getI18nRepository(Product, dataSource);
+        const payload = { name: 'Test' };
+        const context = {
+          getMessage: () => ({ headers: { 'x-language': 'fr' } }),
+        };
+
+        withMessageLanguage(payload, repo, context);
+
+        expect(repo.getLanguage()).toBe('fr');
+      });
+
+      it('should work with actual queries', async () => {
+        const repo = getI18nRepository(Product, dataSource);
+        const payload = { language: 'es' };
+
+        withMessageLanguage(payload, repo);
+
+        const products = await repo.find({ where: { name: 'Portátil' } as any });
+        expect(products).toHaveLength(1);
+      });
+    });
+
+    describe('applyMessageLanguage', () => {
+      it('should set language on language service', () => {
+        const languageService = new I18nLanguageService();
+        const payload = { language: 'fr' };
+
+        applyMessageLanguage(payload, languageService);
+
+        expect(languageService.getLanguage()).toBe('fr');
+      });
+
+      it('should extract from context when payload has no language', () => {
+        const languageService = new I18nLanguageService();
+        const payload = { name: 'Test' };
+        const context = {
+          getMessage: () => ({
+            properties: { headers: { 'x-language': 'es' } },
+          }),
+        };
+
+        applyMessageLanguage(payload, languageService, context);
+
+        expect(languageService.getLanguage()).toBe('es');
       });
     });
   });

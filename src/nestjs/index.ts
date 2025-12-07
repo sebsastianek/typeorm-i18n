@@ -80,3 +80,30 @@ export {
   chain,
   validated,
 } from './language-resolvers';
+
+// CQRS support
+export {
+  WithLanguage,
+  withLanguageFrom,
+  setLanguageFrom,
+  createLanguageHandler,
+  I18nHandler,
+  I18nLanguageDecoratorOptions,
+  I18nLanguage,
+  I18nAwareHandler,
+  I18nService,
+} from './cqrs';
+
+// Microservices support
+export {
+  MessageContext,
+  MessageLanguageOptions,
+  extractLanguageFromPayload,
+  extractLanguageFromKafka,
+  extractLanguageFromRabbitMQ,
+  extractLanguageFromRedis,
+  extractLanguageFromGrpc,
+  extractLanguage,
+  withMessageLanguage,
+  applyMessageLanguage,
+} from './microservices';
