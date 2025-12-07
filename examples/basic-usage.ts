@@ -1,10 +1,10 @@
 /**
  * Basic Usage Example
  *
- * This example demonstrates the core functionality of typeorm-i18n:
- * - Setting up global configuration
- * - Creating entities with I18nColumn
- * - Saving and loading multilingual data
+ * Demonstrates:
+ * - Entity definition with @I18nColumn
+ * - Create, read, update operations
+ * - Accessing translations
  */
 
 import { DataSource, Entity, PrimaryGeneratedColumn, Column } from 'typeorm';
@@ -13,43 +13,36 @@ import {
   I18nColumn,
   I18nValue,
   I18nSubscriber,
+  prepareI18nUpdate,
 } from '../src';
 
-// Define supported languages
-type SupportedLanguages = 'en' | 'es' | 'fr';
+type Languages = 'en' | 'es' | 'fr';
 
-// Configure i18n globally (do this once at app startup)
 setI18nConfig({
   languages: ['en', 'es', 'fr'],
   default_language: 'en',
 });
 
-// Define your entity with multilingual columns
 @Entity()
 class Product {
   @PrimaryGeneratedColumn()
   id!: number;
 
-  @I18nColumn({
-    type: 'varchar',
-    length: 255,
-  })
-  name!: I18nValue<SupportedLanguages, string>;
+  @I18nColumn({ type: 'varchar', length: 255 })
+  name!: string;
 
-  @I18nColumn({
-    type: 'text',
-  })
-  description!: I18nValue<SupportedLanguages, string>;
+  nameTranslations?: I18nValue<Languages, string>;
+
+  @I18nColumn({ type: 'text' })
+  description!: string;
+
+  descriptionTranslations?: I18nValue<Languages, string>;
 
   @Column('decimal', { precision: 10, scale: 2 })
   price!: number;
-
-  @Column('boolean', { default: true })
-  isActive!: boolean;
 }
 
 async function main() {
-  // Initialize DataSource
   const dataSource = new DataSource({
     type: 'better-sqlite3',
     database: ':memory:',
@@ -60,64 +53,47 @@ async function main() {
   });
 
   await dataSource.initialize();
-  console.log('Database connected');
+  const repo = dataSource.getRepository(Product);
 
-  // Create a new product with translations
+  // Create
   const product = new Product();
-  product.name = {
+  product.nameTranslations = {
     en: 'Laptop',
     es: 'Portátil',
     fr: 'Ordinateur portable',
   };
-  product.description = {
-    en: 'Powerful laptop for work and gaming',
-    es: 'Portátil potente para trabajo y juegos',
-    fr: 'Ordinateur portable puissant pour le travail et les jeux',
+  product.descriptionTranslations = {
+    en: 'Powerful laptop',
+    es: 'Portátil potente',
+    fr: 'Ordinateur puissant',
   };
   product.price = 999.99;
-  product.isActive = true;
 
-  // Save the product
-  const saved = await dataSource.manager.save(product);
-  console.log('\nProduct saved with ID:', saved.id);
+  const saved = await repo.save(product);
+  console.log('Saved product ID:', saved.id);
 
-  // Load the product (subscriber automatically reconstructs I18nValue objects)
-  const loaded = await dataSource.manager.findOne(Product, {
-    where: { id: saved.id },
-  });
+  // Read
+  const loaded = await repo.findOne({ where: { id: saved.id } });
+  console.log('\nLoaded:');
+  console.log('  name (default):', loaded?.name);
+  console.log('  nameTranslations.en:', loaded?.nameTranslations?.en);
+  console.log('  nameTranslations.es:', loaded?.nameTranslations?.es);
+  console.log('  nameTranslations.fr:', loaded?.nameTranslations?.fr);
 
-  if (loaded) {
-    console.log('\nLoaded product:');
-    console.log('English name:', loaded.name.en);
-    console.log('Spanish name:', loaded.name.es);
-    console.log('French name:', loaded.name.fr);
-    console.log('Price:', loaded.price);
+  // Update
+  loaded!.nameTranslations = {
+    en: 'Gaming Laptop',
+    es: 'Portátil Gaming',
+    fr: 'Ordinateur portable Gaming',
+  };
+  prepareI18nUpdate(loaded!);
+  await repo.save(loaded!);
 
-    console.log('\nEnglish description:', loaded.description.en);
-    console.log('Spanish description:', loaded.description.es);
-    console.log('French description:', loaded.description.fr);
-  }
-
-  // Update a translation
-  if (loaded) {
-    loaded.name.es = 'Computadora portátil';
-    await dataSource.manager.save(loaded);
-    console.log('\nSpanish translation updated');
-
-    // Reload to verify
-    const updated = await dataSource.manager.findOne(Product, {
-      where: { id: saved.id },
-    });
-    console.log('Updated Spanish name:', updated?.name.es);
-  }
-
-  // Find all products
-  const allProducts = await dataSource.manager.find(Product);
-  console.log('\nTotal products:', allProducts.length);
+  const updated = await repo.findOne({ where: { id: saved.id } });
+  console.log('\nUpdated:');
+  console.log('  nameTranslations.en:', updated?.nameTranslations?.en);
 
   await dataSource.destroy();
-  console.log('\nDatabase connection closed');
 }
 
-// Run the example
 main().catch(console.error);
