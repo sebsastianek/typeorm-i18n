@@ -1,25 +1,21 @@
 /**
- * CQRS integration for typeorm-i18n.
+ * Language-aware decorators for CQRS and Microservices.
  *
- * Provides utilities for extracting language from Commands, Queries, and Events.
+ * Provides transparent language extraction from commands, queries, events,
+ * and microservice messages.
  */
 
 import { I18nLanguageService } from './i18n-language.service';
-import { I18nRepository } from '../repository';
-
-// Metadata key for storing language field name
-const I18N_LANGUAGE_FIELD_KEY = Symbol('i18n:languageField');
+import { getLanguageExtractionConfig } from './types';
 
 /**
- * Interface for commands/queries/events that carry language context.
- * Extend your commands and queries from this interface to enable i18n support.
+ * Interface for commands/queries/events/messages that carry language context.
  *
  * @example
  * ```typescript
  * export class CreateProductCommand implements WithLanguage {
  *   constructor(
  *     public readonly name: string,
- *     public readonly price: number,
  *     public readonly language?: string,
  *   ) {}
  * }
@@ -30,226 +26,117 @@ export interface WithLanguage {
 }
 
 /**
- * Extract language from a command, query, or event and apply it to a repository.
- * Use this in your CQRS handlers.
- *
- * @param source - The command, query, or event with language property
- * @param repo - The I18nRepository to configure
- * @param defaultLanguage - Optional fallback language
- * @returns The repository with language set
- *
- * @example
- * ```typescript
- * @CommandHandler(CreateProductCommand)
- * export class CreateProductHandler implements ICommandHandler<CreateProductCommand> {
- *   constructor(
- *     @InjectI18nRepository(Product)
- *     private readonly productRepo: I18nRepository<Product>,
- *   ) {}
- *
- *   async execute(command: CreateProductCommand) {
- *     // Apply language from command to repository
- *     withLanguageFrom(command, this.productRepo);
- *
- *     // Now queries use the command's language
- *     return this.productRepo.save({ name: command.name });
- *   }
- * }
- * ```
+ * Options for the @I18nLanguageAware decorator
  */
-export function withLanguageFrom<T extends WithLanguage, E extends object>(
-  source: T,
-  repo: I18nRepository<E>,
-  defaultLanguage?: string,
-): I18nRepository<E> {
-  const language = source.language || defaultLanguage;
-  if (language) {
-    repo.setLanguage(language);
-  }
-  return repo;
+export interface I18nLanguageAwareOptions {
+  /** Field name containing the language in payload (default: 'language') */
+  field?: string;
+  /** Header field name for microservices context (default: 'x-language') */
+  headerField?: string;
+  /** Default language if not found */
+  defaultLanguage?: string;
 }
 
 /**
- * Extract language from a command/query and set it on the language service.
- * Useful when you need to propagate language to multiple repositories.
- *
- * @param source - The command, query, or event with language property
- * @param languageService - The I18nLanguageService instance
- * @param defaultLanguage - Optional fallback language
- *
- * @example
- * ```typescript
- * @CommandHandler(CreateOrderCommand)
- * export class CreateOrderHandler implements ICommandHandler<CreateOrderCommand> {
- *   constructor(
- *     private readonly languageService: I18nLanguageService,
- *     @InjectI18nRepository(Order)
- *     private readonly orderRepo: I18nRepository<Order>,
- *     @InjectI18nRepository(Product)
- *     private readonly productRepo: I18nRepository<Product>,
- *   ) {}
- *
- *   async execute(command: CreateOrderCommand) {
- *     // Set language globally for this request scope
- *     setLanguageFrom(command, this.languageService);
- *
- *     // Both repos now use the command's language
- *     const product = await this.productRepo.findOne({ where: { id: command.productId } });
- *     return this.orderRepo.save({ product, quantity: command.quantity });
- *   }
- * }
- * ```
+ * Extract language from microservice context (Kafka, RabbitMQ, gRPC).
  */
-export function setLanguageFrom<T extends WithLanguage>(
-  source: T,
-  languageService: I18nLanguageService,
-  defaultLanguage?: string,
-): void {
-  const language = source.language || defaultLanguage;
-  if (language) {
+function extractLanguageFromContext(context: any, headerField: string): string | null {
+  if (!context) return null;
+
+  try {
+    // Kafka: context.getMessage().headers
+    const kafkaMessage = context.getMessage?.();
+    if (kafkaMessage?.headers?.[headerField]) {
+      const header = kafkaMessage.headers[headerField];
+      return Buffer.isBuffer(header) ? header.toString() : String(header);
+    }
+
+    // RabbitMQ: context.getMessage().properties.headers
+    if (kafkaMessage?.properties?.headers?.[headerField]) {
+      return kafkaMessage.properties.headers[headerField];
+    }
+
+    // gRPC: metadata.get(key)
+    if (context.get) {
+      const values = context.get(headerField);
+      if (values?.[0]) return values[0];
+    }
+  } catch {
+    // Ignore extraction errors
+  }
+
+  return null;
+}
+
+/**
+ * Set language on all I18nRepository instances found on the handler.
+ */
+function setLanguageOnRepos(handler: any, language: string): void {
+  for (const key of Object.keys(handler)) {
+    const prop = handler[key];
+    if (prop && typeof prop.setLanguage === 'function' && typeof prop.getLanguage === 'function') {
+      prop.setLanguage(language);
+    }
+  }
+}
+
+/**
+ * Set language on the language service if available.
+ */
+function setLanguageOnService(handler: any, language: string): void {
+  const languageService: I18nLanguageService | undefined =
+    handler.i18nLanguageService ||
+    handler.languageService ||
+    handler._i18nLanguageService;
+
+  if (languageService) {
     languageService.setLanguage(language);
   }
 }
 
 /**
- * Create a language-aware handler wrapper for CQRS.
- * Automatically extracts language from commands/queries before handler execution.
+ * Method decorator that automatically extracts language and sets it on all
+ * I18nRepository instances on the handler.
  *
- * @param languageService - The I18nLanguageService instance
- * @param defaultLanguage - Optional fallback language
- * @returns A function that wraps handler execution
- *
- * @example
- * ```typescript
- * @CommandHandler(CreateProductCommand)
- * export class CreateProductHandler implements ICommandHandler<CreateProductCommand> {
- *   private readonly withLanguage: ReturnType<typeof createLanguageHandler>;
- *
- *   constructor(
- *     private readonly languageService: I18nLanguageService,
- *     @InjectI18nRepository(Product)
- *     private readonly productRepo: I18nRepository<Product>,
- *   ) {
- *     this.withLanguage = createLanguageHandler(languageService, 'en');
- *   }
- *
- *   async execute(command: CreateProductCommand) {
- *     return this.withLanguage(command, async () => {
- *       // Language is set for this execution
- *       return this.productRepo.save({ name: command.name });
- *     });
- *   }
- * }
- * ```
- */
-export function createLanguageHandler(
-  languageService: I18nLanguageService,
-  defaultLanguage?: string,
-) {
-  return async <T extends WithLanguage, R>(
-    source: T,
-    handler: () => Promise<R>,
-  ): Promise<R> => {
-    setLanguageFrom(source, languageService, defaultLanguage);
-    return handler();
-  };
-}
-
-/**
- * Base class for language-aware CQRS handlers.
- * Extend this class to automatically handle language extraction.
- *
- * @example
- * ```typescript
- * @CommandHandler(CreateProductCommand)
- * export class CreateProductHandler
- *   extends I18nCommandHandler<CreateProductCommand>
- *   implements ICommandHandler<CreateProductCommand>
- * {
- *   constructor(
- *     languageService: I18nLanguageService,
- *     @InjectI18nRepository(Product)
- *     private readonly productRepo: I18nRepository<Product>,
- *   ) {
- *     super(languageService, 'en'); // default language
- *   }
- *
- *   async handle(command: CreateProductCommand) {
- *     // Language already set from command
- *     return this.productRepo.save({ name: command.name });
- *   }
- *
- *   async execute(command: CreateProductCommand) {
- *     return this.executeWithLanguage(command, () => this.handle(command));
- *   }
- * }
- * ```
- */
-export abstract class I18nHandler {
-  constructor(
-    protected readonly languageService: I18nLanguageService,
-    protected readonly defaultLanguage?: string,
-  ) {}
-
-  /**
-   * Execute a handler with language context from the source.
-   */
-  protected async executeWithLanguage<T extends WithLanguage, R>(
-    source: T,
-    handler: () => Promise<R>,
-  ): Promise<R> {
-    setLanguageFrom(source, this.languageService, this.defaultLanguage);
-    return handler();
-  }
-}
-
-/**
- * Options for the @I18nLanguage decorator
- */
-export interface I18nLanguageDecoratorOptions {
-  /** Field name containing the language (default: 'language') */
-  field?: string;
-  /** Default language if not found in command/query */
-  defaultLanguage?: string;
-}
-
-/**
- * Method decorator that automatically extracts language from the first argument
- * and sets it on the I18nLanguageService before method execution.
- *
- * Requires the class to have an `i18nLanguageService` property (injected via constructor).
+ * Works with:
+ * - CQRS commands/queries (extracts from first argument)
+ * - Microservice messages (extracts from payload or context headers)
  *
  * @param options - Decorator options
  *
  * @example
  * ```typescript
- * // Define command with language
- * class CreateProductCommand implements WithLanguage {
+ * // CQRS Command Handler
+ * @CommandHandler(CreateProductCommand)
+ * export class CreateProductHandler {
  *   constructor(
- *     public readonly name: string,
- *     public readonly language?: string,
+ *     @InjectI18nRepository(Product) private productRepo: I18nRepository<Product>,
  *   ) {}
+ *
+ *   @I18nLanguageAware()
+ *   async execute(command: CreateProductCommand) {
+ *     // Language automatically set from command.language
+ *     return this.productRepo.save({ name: command.name });
+ *   }
  * }
  *
- * @CommandHandler(CreateProductCommand)
- * export class CreateProductHandler implements ICommandHandler<CreateProductCommand> {
+ * // Microservice Message Handler
+ * @Controller()
+ * export class ProductController {
  *   constructor(
- *     private readonly i18nLanguageService: I18nLanguageService,
- *     @InjectI18nRepository(Product)
- *     private readonly productRepo: I18nRepository<Product>,
+ *     @InjectI18nRepository(Product) private productRepo: I18nRepository<Product>,
  *   ) {}
  *
- *   @I18nLanguage()
- *   async execute(command: CreateProductCommand) {
- *     // Language is automatically set from command.language
- *     return this.productRepo.save({ name: command.name });
+ *   @MessagePattern('product.create')
+ *   @I18nLanguageAware()
+ *   async handleCreate(@Payload() data: any, @Ctx() context: any) {
+ *     // Language extracted from data.language or context headers
+ *     return this.productRepo.save(data);
  *   }
  * }
  * ```
  */
-export function I18nLanguage(options: I18nLanguageDecoratorOptions = {}): MethodDecorator {
-  const { field = 'language', defaultLanguage } = options;
-
+export function I18nLanguageAware(options: I18nLanguageAwareOptions = {}): MethodDecorator {
   return function (
     _target: any,
     _propertyKey: string | symbol,
@@ -258,20 +145,27 @@ export function I18nLanguage(options: I18nLanguageDecoratorOptions = {}): Method
     const originalMethod = descriptor.value;
 
     descriptor.value = async function (...args: any[]) {
-      // Get the language service from the instance
-      const languageService: I18nLanguageService | undefined =
-        (this as any).i18nLanguageService ||
-        (this as any).languageService ||
-        (this as any)._i18nLanguageService;
+      // Merge global config with decorator options (decorator options take precedence)
+      const globalConfig = getLanguageExtractionConfig();
+      const field = options.field ?? globalConfig.field ?? 'language';
+      const headerField = options.headerField ?? globalConfig.headerField ?? 'x-language';
+      const defaultLanguage = options.defaultLanguage;
 
-      if (languageService) {
-        // Extract language from first argument (command/query)
-        const firstArg = args[0];
-        const language = firstArg?.[field] || defaultLanguage;
+      // Try to extract language from first argument (payload/command)
+      const payload = args[0];
+      let language = payload?.[field];
 
-        if (language) {
-          languageService.setLanguage(language);
-        }
+      // If not in payload, try context (second argument for microservices)
+      if (!language && args[1]) {
+        language = extractLanguageFromContext(args[1], headerField);
+      }
+
+      // Fall back to default
+      language = language || defaultLanguage;
+
+      if (language) {
+        setLanguageOnService(this, language);
+        setLanguageOnRepos(this, language);
       }
 
       return originalMethod.apply(this, args);
@@ -282,50 +176,51 @@ export function I18nLanguage(options: I18nLanguageDecoratorOptions = {}): Method
 }
 
 /**
- * Class decorator that automatically applies language extraction to the execute method.
- * Alternative to using @I18nLanguage() on individual methods.
+ * Class decorator that automatically applies @I18nLanguageAware to the execute method.
+ * Useful for CQRS handlers where you want automatic language extraction.
  *
  * @param options - Decorator options
  *
  * @example
  * ```typescript
  * @CommandHandler(CreateProductCommand)
- * @I18nAwareHandler()
- * export class CreateProductHandler implements ICommandHandler<CreateProductCommand> {
+ * @I18nLanguageAwareHandler()
+ * export class CreateProductHandler {
  *   constructor(
- *     private readonly i18nLanguageService: I18nLanguageService,
- *     @InjectI18nRepository(Product)
- *     private readonly productRepo: I18nRepository<Product>,
+ *     @InjectI18nRepository(Product) private productRepo: I18nRepository<Product>,
  *   ) {}
  *
  *   async execute(command: CreateProductCommand) {
- *     // Language is automatically set from command.language
+ *     // Language automatically set from command.language
  *     return this.productRepo.save({ name: command.name });
  *   }
  * }
  * ```
  */
-export function I18nAwareHandler(options: I18nLanguageDecoratorOptions = {}): ClassDecorator {
+export function I18nLanguageAwareHandler(options: I18nLanguageAwareOptions = {}): ClassDecorator {
   return function (target: any) {
-    const { field = 'language', defaultLanguage } = options;
-
-    // Wrap the execute method
     const originalExecute = target.prototype.execute;
 
     if (originalExecute) {
       target.prototype.execute = async function (...args: any[]) {
-        const languageService: I18nLanguageService | undefined =
-          (this as any).i18nLanguageService ||
-          (this as any).languageService ||
-          (this as any)._i18nLanguageService;
+        // Merge global config with decorator options (decorator options take precedence)
+        const globalConfig = getLanguageExtractionConfig();
+        const field = options.field ?? globalConfig.field ?? 'language';
+        const headerField = options.headerField ?? globalConfig.headerField ?? 'x-language';
+        const defaultLanguage = options.defaultLanguage;
 
-        if (languageService) {
-          const firstArg = args[0];
-          const language = firstArg?.[field] || defaultLanguage;
+        const payload = args[0];
+        let language = payload?.[field];
 
-          if (language) {
-            languageService.setLanguage(language);
-          }
+        if (!language && args[1]) {
+          language = extractLanguageFromContext(args[1], headerField);
+        }
+
+        language = language || defaultLanguage;
+
+        if (language) {
+          setLanguageOnService(this, language);
+          setLanguageOnRepos(this, language);
         }
 
         return originalExecute.apply(this, args);
@@ -333,30 +228,5 @@ export function I18nAwareHandler(options: I18nLanguageDecoratorOptions = {}): Cl
     }
 
     return target;
-  };
-}
-
-/**
- * Property decorator to mark which field contains the language service.
- * Use this if your property name doesn't match the default patterns.
- *
- * @example
- * ```typescript
- * @CommandHandler(CreateProductCommand)
- * export class CreateProductHandler implements ICommandHandler<CreateProductCommand> {
- *   @I18nService()
- *   private readonly myCustomLanguageService: I18nLanguageService;
- *
- *   @I18nLanguage()
- *   async execute(command: CreateProductCommand) {
- *     return this.productRepo.save({ name: command.name });
- *   }
- * }
- * ```
- */
-export function I18nService(): PropertyDecorator {
-  return function (target: any, propertyKey: string | symbol) {
-    // Store the property key so decorators know where to find the service
-    Reflect.defineMetadata(I18N_LANGUAGE_FIELD_KEY, propertyKey, target.constructor);
   };
 }

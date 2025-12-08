@@ -1,6 +1,21 @@
 import { ModuleMetadata, Type } from '@nestjs/common';
 
 /**
+ * Configuration for language extraction in CQRS/Microservices
+ */
+export interface I18nLanguageExtractionConfig {
+  /**
+   * Field name in payload/command containing language (default: 'language')
+   */
+  field?: string;
+
+  /**
+   * Header field name for microservices context (default: 'x-language')
+   */
+  headerField?: string;
+}
+
+/**
  * Configuration options for I18nModule
  */
 export interface I18nModuleOptions {
@@ -20,6 +35,31 @@ export interface I18nModuleOptions {
    * If null is returned, defaultLanguage will be used.
    */
   resolveLanguage?: (request: any) => string | null | Promise<string | null>;
+
+  /**
+   * Configuration for @I18nLanguageAware decorator.
+   * Sets default field names for language extraction in CQRS/Microservices.
+   */
+  languageExtraction?: I18nLanguageExtractionConfig;
+}
+
+// Global config store for decorator access
+let globalLanguageExtractionConfig: I18nLanguageExtractionConfig = {};
+
+/**
+ * Set global language extraction config (called by I18nModule)
+ * @internal
+ */
+export function setLanguageExtractionConfig(config: I18nLanguageExtractionConfig): void {
+  globalLanguageExtractionConfig = config;
+}
+
+/**
+ * Get global language extraction config (used by decorators)
+ * @internal
+ */
+export function getLanguageExtractionConfig(): I18nLanguageExtractionConfig {
+  return globalLanguageExtractionConfig;
 }
 
 /**

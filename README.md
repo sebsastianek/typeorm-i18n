@@ -12,6 +12,7 @@ TypeORM extension for multilingual column support. Generates language-specific d
 - `I18nRepository` with language context - standard methods auto-translate
 - `I18nQueryBuilder` with transparent i18n support
 - NestJS module with request-scoped language resolution
+- CQRS & Microservices support via `@I18nLanguageAware` decorator
 - Works with TypeORM subscriber lifecycle
 - Supports SQLite, PostgreSQL, MySQL
 
@@ -320,6 +321,78 @@ I18nModule.forRoot({
 })
 ```
 
+### CQRS & Microservices
+
+For CQRS handlers and microservice consumers, use `@I18nLanguageAware` decorator to transparently extract language from commands, queries, or message payloads:
+
+```typescript
+import { I18nLanguageAware, WithLanguage } from '@sebsastianek/typeorm-i18n/nestjs';
+
+// Define command with language field
+class CreateProductCommand implements WithLanguage {
+  constructor(
+    public readonly name: string,
+    public readonly language?: string,  // Add language field
+  ) {}
+}
+
+// CQRS Handler
+@CommandHandler(CreateProductCommand)
+export class CreateProductHandler {
+  constructor(
+    @InjectI18nRepository(Product) private productRepo: I18nRepository<Product>,
+  ) {}
+
+  @I18nLanguageAware()  // Automatically sets language on all repos
+  async execute(command: CreateProductCommand) {
+    return this.productRepo.save({ name: command.name });
+  }
+}
+```
+
+For microservices, the decorator extracts language from payload or context headers (Kafka, RabbitMQ, gRPC):
+
+```typescript
+@Controller()
+export class ProductController {
+  constructor(
+    @InjectI18nRepository(Product) private productRepo: I18nRepository<Product>,
+  ) {}
+
+  @MessagePattern('product.create')
+  @I18nLanguageAware()  // Extracts from payload.language or x-language header
+  async handleCreate(@Payload() data: any, @Ctx() context: any) {
+    return this.productRepo.save(data);
+  }
+}
+```
+
+#### Global Extraction Config
+
+Configure field names globally instead of per-decorator:
+
+```typescript
+I18nModule.forRoot({
+  languages: ['en', 'es', 'fr'],
+  defaultLanguage: 'en',
+  languageExtraction: {
+    field: 'locale',        // Payload field (default: 'language')
+    headerField: 'x-lang',  // Header field (default: 'x-language')
+  },
+})
+
+// Now all handlers use 'locale' field automatically
+@I18nLanguageAware()  // Uses { locale: 'es' } from payload
+async execute(command: { locale?: string }) { ... }
+```
+
+Override per-handler when needed:
+
+```typescript
+@I18nLanguageAware({ field: 'customField' })  // Overrides global config
+async execute(command: { customField?: string }) { ... }
+```
+
 ## API Reference
 
 ### `setI18nConfig(config)`
@@ -368,6 +441,32 @@ await repo.save(entity);
 const i18nRepo = getI18nRepository(Product, dataSource);
 entity.nameTranslations = { en: 'New', es: 'Nuevo', fr: 'Nouveau' };
 await i18nRepo.save(entity);  // No prepareI18nUpdate needed
+```
+
+### `@I18nLanguageAware(options?)`
+
+Method decorator for CQRS handlers and microservice consumers. Automatically extracts language from payload/command and sets it on all `I18nRepository` instances on the handler.
+
+Options:
+- `field`: Payload field name (default: from config or `'language'`)
+- `headerField`: Header field for microservices (default: from config or `'x-language'`)
+- `defaultLanguage`: Fallback language
+
+```typescript
+@I18nLanguageAware({ field: 'locale', defaultLanguage: 'en' })
+async execute(command: { locale?: string }) { ... }
+```
+
+### `@I18nLanguageAwareHandler(options?)`
+
+Class decorator alternative - wraps the `execute` method automatically:
+
+```typescript
+@CommandHandler(CreateProductCommand)
+@I18nLanguageAwareHandler()
+export class CreateProductHandler {
+  async execute(command: CreateProductCommand) { ... }
+}
 ```
 
 ### `I18nValue<TLang, TValue>`

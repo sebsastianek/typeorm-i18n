@@ -19,6 +19,7 @@ import {
   I18nModuleOptionsFactory,
   I18N_MODULE_OPTIONS,
   getI18nRepositoryToken,
+  setLanguageExtractionConfig,
 } from './types';
 
 /**
@@ -68,6 +69,11 @@ export class I18nModule {
       languages: options.languages,
       default_language: options.defaultLanguage,
     });
+
+    // Set language extraction config for decorators
+    if (options.languageExtraction) {
+      setLanguageExtractionConfig(options.languageExtraction);
+    }
 
     return {
       module: I18nModule,
@@ -124,6 +130,9 @@ export class I18nModule {
               languages: opts.languages,
               default_language: opts.defaultLanguage,
             });
+            if (opts.languageExtraction) {
+              setLanguageExtractionConfig(opts.languageExtraction);
+            }
             return true;
           },
           inject: [I18N_MODULE_OPTIONS],

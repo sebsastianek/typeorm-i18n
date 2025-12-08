@@ -66,6 +66,7 @@ export {
   I18nModuleOptions,
   I18nModuleAsyncOptions,
   I18nModuleOptionsFactory,
+  I18nLanguageExtractionConfig,
   I18N_MODULE_OPTIONS,
   I18N_LANGUAGE,
   getI18nRepositoryToken,
@@ -81,29 +82,10 @@ export {
   validated,
 } from './language-resolvers';
 
-// CQRS support
+// Language-aware decorators (for CQRS and Microservices)
 export {
   WithLanguage,
-  withLanguageFrom,
-  setLanguageFrom,
-  createLanguageHandler,
-  I18nHandler,
-  I18nLanguageDecoratorOptions,
-  I18nLanguage,
-  I18nAwareHandler,
-  I18nService,
+  I18nLanguageAwareOptions,
+  I18nLanguageAware,
+  I18nLanguageAwareHandler,
 } from './cqrs';
-
-// Microservices support
-export {
-  MessageContext,
-  MessageLanguageOptions,
-  extractLanguageFromPayload,
-  extractLanguageFromKafka,
-  extractLanguageFromRabbitMQ,
-  extractLanguageFromRedis,
-  extractLanguageFromGrpc,
-  extractLanguage,
-  withMessageLanguage,
-  applyMessageLanguage,
-} from './microservices';
