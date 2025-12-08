@@ -1,6 +1,20 @@
 import { normalizeLanguageCode, normalizeLanguageCodes } from './language-utils';
 
 /**
+ * Callbacks to run when config is set
+ */
+const configCallbacks: Array<() => void> = [];
+
+/**
+ * Register a callback to be called when setI18nConfig is invoked.
+ * Used internally to finalize pending I18n columns.
+ * @internal
+ */
+export function onI18nConfigSet(callback: () => void): void {
+  configCallbacks.push(callback);
+}
+
+/**
  * Global configuration for I18n columns
  */
 export interface I18nGlobalConfig {
@@ -60,6 +74,11 @@ export function setI18nConfig(config: I18nGlobalConfig): void {
       ? normalizeLanguageCode(config.default_language)
       : undefined,
   };
+
+  // Run registered callbacks (e.g., finalize pending I18n columns)
+  for (const callback of configCallbacks) {
+    callback();
+  }
 }
 
 /**

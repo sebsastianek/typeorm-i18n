@@ -1,5 +1,6 @@
 import { DataSource, Entity, PrimaryGeneratedColumn } from 'typeorm';
 import { setI18nConfig, resetI18nConfig, I18nColumn, I18nValue } from '../src';
+import { resetI18nColumnsFinalization } from '../src/decorator';
 import { createE2EDataSource, closeE2EDataSource } from './db-helper';
 
 describe('Global Configuration', () => {
@@ -7,6 +8,7 @@ describe('Global Configuration', () => {
 
   afterEach(async () => {
     resetI18nConfig();
+    resetI18nColumnsFinalization();
 
     if (dataSource && dataSource.isInitialized) {
       await closeE2EDataSource(dataSource);
@@ -128,27 +130,47 @@ describe('Global Configuration', () => {
     expect(loaded?.contentTranslations?.ja).toBe('コンテンツ');
   });
 
-  it('should throw error when no global config and no column-level config', async () => {
+  it('should queue columns when no config and finalize when config is set', async () => {
+    // Start with no config
     resetI18nConfig();
+    resetI18nColumnsFinalization();
 
     type TestLanguages = 'en' | 'es';
 
-    expect(() => {
-      @Entity('test_no_config')
-      class TestEntity {
-        @PrimaryGeneratedColumn()
-        id!: number;
+    // Define entity without config - columns are queued (no error thrown)
+    @Entity('test_deferred_config')
+    class TestEntity {
+      @PrimaryGeneratedColumn()
+      id!: number;
 
-        @I18nColumn({
-          type: 'varchar',
-        })
-        name!: string;
+      @I18nColumn({
+        type: 'varchar',
+      })
+      name!: string;
 
-        nameTranslations?: I18nValue<TestLanguages, string>;
-      }
+      nameTranslations?: I18nValue<TestLanguages, string>;
+    }
 
-      void TestEntity;
-    }).toThrow('I18nColumn requires at least one language');
+    // Now set config - this triggers finalization and columns inherit from global config
+    setI18nConfig({
+      languages: ['en', 'es'],
+      default_language: 'en',
+    });
+
+    // Verify the entity works with the inherited config
+    dataSource = await createE2EDataSource([TestEntity]);
+
+    const repo = dataSource.getRepository(TestEntity);
+    const entity = repo.create();
+    // Use proper API: set translations
+    (entity as any).nameTranslations = { en: 'Test', es: 'Prueba' };
+    await repo.save(entity);
+
+    const loaded = await repo.findOne({ where: { id: entity.id } });
+    expect(loaded).toBeDefined();
+    // Verify translations are loaded correctly
+    expect(loaded!.nameTranslations?.en).toBe('Test');
+    expect(loaded!.nameTranslations?.es).toBe('Prueba');
   });
 
   it('should support partial override (only languages)', async () => {
