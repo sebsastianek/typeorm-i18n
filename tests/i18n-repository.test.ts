@@ -661,4 +661,93 @@ describe('I18nRepository', () => {
       expect(exists).toBe(true);
     });
   });
+
+  describe('Clean JSON Output', () => {
+    it('should not include raw translation columns in loaded entity', async () => {
+      const repo = getI18nRepository(Product, dataSource);
+      repo.setLanguage('es');
+
+      const product = await repo.findOne({ where: { id: 1 } });
+
+      expect(product).toBeDefined();
+      // Translations should be in the translations object only
+      expect(product!.nameTranslations).toBeDefined();
+      expect(product!.nameTranslations?.en).toBe('Laptop');
+      expect(product!.nameTranslations?.es).toBe('Portátil');
+      expect(product!.nameTranslations?.fr).toBe('Ordinateur portable');
+
+      // Raw translation columns should NOT be present
+      expect((product as any).name_es).toBeUndefined();
+      expect((product as any).name_fr).toBeUndefined();
+      expect((product as any).description_es).toBeUndefined();
+      expect((product as any).description_fr).toBeUndefined();
+
+      // Base property should have current language value
+      expect(product!.name).toBe('Portátil');
+    });
+
+    it('should produce clean JSON without raw translation columns', async () => {
+      const repo = getI18nRepository(Product, dataSource);
+      repo.setLanguage('fr');
+
+      const product = await repo.findOne({ where: { id: 1 } });
+      const json = JSON.parse(JSON.stringify(product));
+
+      // Should have translations object
+      expect(json.nameTranslations).toEqual({
+        en: 'Laptop',
+        es: 'Portátil',
+        fr: 'Ordinateur portable',
+      });
+
+      // Should NOT have raw columns
+      expect(json.name_es).toBeUndefined();
+      expect(json.name_fr).toBeUndefined();
+      expect(json.description_es).toBeUndefined();
+      expect(json.description_fr).toBeUndefined();
+
+      // Should have the base property with current language value
+      expect(json.name).toBe('Ordinateur portable');
+    });
+
+    it('should clean up raw columns for all i18n properties', async () => {
+      const repo = getI18nRepository(Product, dataSource);
+
+      const products = await repo.find();
+
+      for (const product of products) {
+        // Check that no raw translation columns exist
+        const keys = Object.keys(product);
+        const rawTranslationColumns = keys.filter(
+          (key) => key.includes('_es') || key.includes('_fr')
+        );
+
+        expect(rawTranslationColumns).toHaveLength(0);
+
+        // Translations should be accessible via translations object
+        expect(product.nameTranslations).toBeDefined();
+        expect(product.descriptionTranslations).toBeDefined();
+      }
+    });
+
+    it('should work correctly with QueryBuilder results', async () => {
+      const repo = getI18nRepository(Product, dataSource);
+      repo.setLanguage('es');
+
+      const products = await repo
+        .createQueryBuilder('product')
+        .where({ name: 'Portátil' })
+        .getMany();
+
+      expect(products).toHaveLength(1);
+      const product = products[0];
+
+      // Raw columns should not be present
+      expect((product as any).name_es).toBeUndefined();
+      expect((product as any).name_fr).toBeUndefined();
+
+      // Translations should be in the object
+      expect(product.nameTranslations?.es).toBe('Portátil');
+    });
+  });
 });

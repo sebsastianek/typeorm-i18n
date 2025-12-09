@@ -135,13 +135,29 @@ export function transformAfterLoad<T extends object>(entity: T, language?: strin
   const metadata = i18nMetadataStorage.getMetadata(entity.constructor);
   const i18nEntity = entity as T & I18nEntity;
 
+  // Skip if already transformed (prevents double-processing which would lose data)
+  if (i18nEntity[I18N_TRANSLATIONS_SET_KEY]) {
+    // Only update the language and single-value properties if language changed
+    if (language && language !== i18nEntity[I18N_LANGUAGE_KEY]) {
+      i18nEntity[I18N_LANGUAGE_KEY] = language;
+      for (const meta of metadata) {
+        const translationsKey = `${meta.propertyName}Translations`;
+        const translations = (entity as any)[translationsKey];
+        if (translations) {
+          (entity as any)[meta.propertyName] = translations[language] ?? translations[meta.options.default_language];
+        }
+      }
+    }
+    return entity;
+  }
+
   // Store the current language on the entity
   if (language) {
     i18nEntity[I18N_LANGUAGE_KEY] = language;
   }
 
   for (const meta of metadata) {
-    // Create the translations object
+    // Create the translations object from raw columns
     const translations = createI18nValue(
       entity,
       meta.propertyName,
@@ -156,7 +172,19 @@ export function transformAfterLoad<T extends object>(entity: T, language?: strin
     // Set the single-value property to the current language value
     const currentLang = language || meta.options.default_language;
     (entity as any)[meta.propertyName] = translations[currentLang as keyof typeof translations];
+
+    // Clean up raw translation columns to avoid duplicates in JSON output
+    // Only delete non-default language columns (default language uses the base property name)
+    for (const lang of meta.options.languages) {
+      if (lang !== meta.options.default_language) {
+        const columnName = getTranslationColumnName(meta.propertyName, lang);
+        delete (entity as any)[columnName];
+      }
+    }
   }
+
+  // Mark entity as transformed to prevent double-processing
+  i18nEntity[I18N_TRANSLATIONS_SET_KEY] = true as any;
 
   return entity;
 }
