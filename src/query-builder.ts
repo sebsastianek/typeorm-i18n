@@ -1,7 +1,7 @@
 import { SelectQueryBuilder, ObjectLiteral, Brackets, WhereExpressionBuilder } from 'typeorm';
 import { i18nMetadataStorage } from './metadata';
 import { LANGUAGE_DELIMITER } from './constants';
-import { transformAfterLoad } from './utils';
+import { transformEntityWithRelations } from './utils';
 
 /**
  * Extended QueryBuilder with automatic i18n column translation.
@@ -265,13 +265,14 @@ export class I18nQueryBuilder<Entity extends ObjectLiteral> extends SelectQueryB
 
   /**
    * Get many entities with language-aware transformation.
-   * Overrides the base getMany to apply language context to loaded entities.
+   * Overrides the base getMany to apply language context to loaded entities
+   * and their relations.
    */
   override async getMany(): Promise<Entity[]> {
     const entities = await super.getMany();
     if (this.__i18nLanguage) {
       for (const entity of entities) {
-        transformAfterLoad(entity, this.__i18nLanguage);
+        transformEntityWithRelations(entity, this.__i18nLanguage);
       }
     }
     return entities;
@@ -279,12 +280,13 @@ export class I18nQueryBuilder<Entity extends ObjectLiteral> extends SelectQueryB
 
   /**
    * Get one entity with language-aware transformation.
-   * Overrides the base getOne to apply language context to loaded entity.
+   * Overrides the base getOne to apply language context to loaded entity
+   * and its relations.
    */
   override async getOne(): Promise<Entity | null> {
     const entity = await super.getOne();
     if (entity && this.__i18nLanguage) {
-      transformAfterLoad(entity, this.__i18nLanguage);
+      transformEntityWithRelations(entity, this.__i18nLanguage);
     }
     return entity;
   }

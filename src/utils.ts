@@ -261,6 +261,76 @@ export function prepareI18nUpdate<T extends object>(entity: T): T {
  * // Returns: { name_es: 'New Name' }
  * ```
  */
+/**
+ * Recursively transforms an entity and all its loaded relations with i18n support.
+ * This ensures that joined/related entities also have their single-value properties
+ * set to the correct language.
+ *
+ * @param entity - The entity instance with potential relations
+ * @param language - The language to apply to all entities
+ * @param visited - Set of visited objects to prevent circular reference loops
+ *
+ * @example
+ * ```typescript
+ * // After loading with relations
+ * const question = await repo
+ *   .createQueryBuilder('question')
+ *   .leftJoinAndSelect('question.dimension', 'dimension')
+ *   .getOne();
+ *
+ * // Transform the entity tree with language
+ * transformEntityWithRelations(question, 'de');
+ * // question.text = 'German text'
+ * // question.dimension.name = 'German dimension name'
+ * ```
+ */
+export function transformEntityWithRelations<T extends object>(
+  entity: T,
+  language: string,
+  visited: Set<object> = new Set()
+): T {
+  if (!entity || typeof entity !== 'object' || visited.has(entity)) {
+    return entity;
+  }
+
+  visited.add(entity);
+
+  // Transform the entity itself
+  transformAfterLoad(entity, language);
+
+  // Recursively transform all object properties (potential relations)
+  for (const key of Object.keys(entity)) {
+    const value = (entity as any)[key];
+
+    if (value === null || value === undefined) {
+      continue;
+    }
+
+    // Handle array relations (e.g., product.reviews)
+    if (Array.isArray(value)) {
+      for (const item of value) {
+        if (item && typeof item === 'object' && !Buffer.isBuffer(item)) {
+          // Check if the item might be an entity (has constructor with metadata)
+          const metadata = i18nMetadataStorage.getMetadata(item.constructor);
+          if (metadata.length > 0) {
+            transformEntityWithRelations(item, language, visited);
+          }
+        }
+      }
+    }
+    // Handle single relations (e.g., product.category)
+    else if (typeof value === 'object' && !Buffer.isBuffer(value) && !(value instanceof Date)) {
+      // Check if this object might be an entity with i18n metadata
+      const metadata = i18nMetadataStorage.getMetadata(value.constructor);
+      if (metadata.length > 0) {
+        transformEntityWithRelations(value, language, visited);
+      }
+    }
+  }
+
+  return entity;
+}
+
 export function transformBeforeSave<T extends object>(entity: T): T {
   if (!entity) {
     return entity;

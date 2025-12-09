@@ -3,7 +3,7 @@ import { i18nMetadataStorage } from './metadata';
 import { LANGUAGE_DELIMITER } from './constants';
 import { I18nQueryBuilder, createI18nQueryBuilder } from './query-builder';
 import { normalizeLanguageCode } from './language-utils';
-import { transformAfterLoad, prepareI18nUpdate } from './utils';
+import { prepareI18nUpdate, transformEntityWithRelations } from './utils';
 
 /**
  * Extended repository with i18n support.
@@ -195,23 +195,24 @@ export class I18nRepository<Entity extends object> extends Repository<Entity> {
   /**
    * Set the current language on a single entity and re-transform its i18n properties.
    * This updates both the language symbol and the single-value properties.
+   * Also recursively transforms any loaded relations.
    */
   private setLanguageOnEntity(entity: Entity): Entity {
     if (this.currentLanguage) {
-      // Re-transform the entity with the current language to update single-value properties
-      transformAfterLoad(entity, this.currentLanguage);
+      // Re-transform the entity and all its relations with the current language
+      transformEntityWithRelations(entity, this.currentLanguage);
     }
     return entity;
   }
 
   /**
-   * Set the current language on multiple entities
+   * Set the current language on multiple entities and their relations
    */
   private setLanguageOnEntities(entities: Entity[]): Entity[] {
     if (this.currentLanguage) {
       for (const entity of entities) {
-        // Re-transform each entity with the current language
-        transformAfterLoad(entity, this.currentLanguage);
+        // Re-transform each entity and its relations with the current language
+        transformEntityWithRelations(entity, this.currentLanguage);
       }
     }
     return entities;

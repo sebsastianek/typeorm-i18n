@@ -35,6 +35,7 @@ export {
   transformAfterLoad,
   transformBeforeSave,
   prepareI18nUpdate,
+  transformEntityWithRelations,
 } from './utils';
 
 // Language utilities are internal - language codes are normalized automatically
