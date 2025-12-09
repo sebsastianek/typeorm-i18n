@@ -3,8 +3,10 @@ import { getI18nRepository, setI18nConfig, resetI18nConfig } from '../src';
 import { createE2EDataSource, closeE2EDataSource, seedDatabase } from './db-helper';
 import { Category } from './entities/Category.entity';
 import { ProductWithCategory } from './entities/ProductWithCategory.entity';
+import { Order } from './entities/Order.entity';
 import { categoryFixtures } from './fixtures/category.fixtures';
 import { productWithCategoryFixtures } from './fixtures/productWithCategory.fixtures';
+import { orderFixtures } from './fixtures/order.fixtures';
 
 describe('I18n Relations Support', () => {
   let dataSource: DataSource;
@@ -252,6 +254,209 @@ describe('I18n Relations Support', () => {
       expect(product).toBeDefined();
       expect(product?.name).toBe('Producto Huérfano');
       expect(product?.category).toBeNull();
+    });
+  });
+});
+
+describe('Non-i18n root entity with i18n relations', () => {
+  let dataSource: DataSource;
+
+  beforeAll(() => {
+    setI18nConfig({
+      languages: ['en', 'es', 'fr'],
+      default_language: 'en',
+    });
+  });
+
+  afterAll(() => {
+    resetI18nConfig();
+  });
+
+  beforeEach(async () => {
+    // Order entity has NO i18n columns, but relates to entities that do
+    dataSource = await createE2EDataSource([Category, ProductWithCategory, Order]);
+    // Seed in order: categories -> products -> orders (due to foreign keys)
+    await seedDatabase(dataSource, Category, categoryFixtures);
+    await seedDatabase(dataSource, ProductWithCategory, productWithCategoryFixtures);
+    await seedDatabase(dataSource, Order, orderFixtures);
+  });
+
+  afterEach(async () => {
+    if (dataSource && dataSource.isInitialized) {
+      await closeE2EDataSource(dataSource);
+    }
+  });
+
+  describe('Root entity without i18n, joined entities with i18n', () => {
+    it('should translate joined i18n entities when root has no i18n metadata (QueryBuilder)', async () => {
+      // Order has NO @I18nColumn decorators
+      // ProductWithCategory and Category DO have @I18nColumn decorators
+      const repo = getI18nRepository(Order, dataSource);
+      repo.setLanguage('es');
+
+      const orders = await repo
+        .createQueryBuilder('order')
+        .leftJoinAndSelect('order.product', 'product')
+        .leftJoinAndSelect('order.category', 'category')
+        .leftJoinAndSelect('product.category', 'productCategory')
+        .getMany();
+
+      expect(orders.length).toBeGreaterThan(0);
+
+      // Find the order for Laptop
+      const laptopOrder = orders.find((o) => o.orderNumber === 'ORD-001');
+      expect(laptopOrder).toBeDefined();
+
+      // Order itself should NOT have translation properties (it has no i18n columns)
+      expect((laptopOrder as any).orderNumberTranslations).toBeUndefined();
+
+      // But the joined product SHOULD have Spanish translations
+      expect(laptopOrder?.product).toBeDefined();
+      expect(laptopOrder?.product?.name).toBe('Portátil');
+      expect(laptopOrder?.product?.nameTranslations?.es).toBe('Portátil');
+      expect(laptopOrder?.product?.nameTranslations?.en).toBe('Laptop');
+
+      // And the directly joined category should also be in Spanish
+      expect(laptopOrder?.category).toBeDefined();
+      expect(laptopOrder?.category?.name).toBe('Electrónica');
+      expect(laptopOrder?.category?.nameTranslations?.es).toBe('Electrónica');
+
+      // Product's nested category should also be translated
+      expect(laptopOrder?.product?.category).toBeDefined();
+      expect(laptopOrder?.product?.category?.name).toBe('Electrónica');
+    });
+
+    it('should translate joined i18n entities in French when root has no i18n metadata', async () => {
+      const repo = getI18nRepository(Order, dataSource);
+      repo.setLanguage('fr');
+
+      const order = await repo
+        .createQueryBuilder('order')
+        .leftJoinAndSelect('order.product', 'product')
+        .leftJoinAndSelect('order.category', 'category')
+        .where('order.id = :id', { id: 2 }) // Mouse order
+        .getOne();
+
+      expect(order).toBeDefined();
+      expect(order?.orderNumber).toBe('ORD-002');
+
+      // Product should be in French
+      expect(order?.product?.name).toBe('Souris');
+      expect(order?.product?.description).toBe('Souris ergonomique sans fil');
+
+      // Category should be in French
+      expect(order?.category?.name).toBe('Accessoires');
+    });
+
+    it('should use default language for joined entities when no language set', async () => {
+      const repo = getI18nRepository(Order, dataSource);
+      // No language set - should use default (English)
+
+      const order = await repo
+        .createQueryBuilder('order')
+        .leftJoinAndSelect('order.product', 'product')
+        .where('order.id = :id', { id: 1 })
+        .getOne();
+
+      expect(order).toBeDefined();
+      // Product should be in default language (English)
+      expect(order?.product?.name).toBe('Laptop');
+    });
+
+    it('should translate joined i18n entities when using find with relations option', async () => {
+      const repo = getI18nRepository(Order, dataSource);
+      repo.setLanguage('es');
+
+      const orders = await repo.find({
+        relations: ['product', 'category'],
+      });
+
+      expect(orders.length).toBeGreaterThan(0);
+
+      const keyboardOrder = orders.find((o) => o.orderNumber === 'ORD-003');
+      expect(keyboardOrder).toBeDefined();
+
+      // Order fields are NOT translated (no i18n metadata)
+      expect(keyboardOrder?.orderNumber).toBe('ORD-003');
+
+      // But product IS translated
+      expect(keyboardOrder?.product?.name).toBe('Teclado');
+      expect(keyboardOrder?.product?.nameTranslations?.en).toBe('Keyboard');
+
+      // And category IS translated
+      expect(keyboardOrder?.category?.name).toBe('Accesorios');
+    });
+
+    it('should translate using findOne with relations option', async () => {
+      const repo = getI18nRepository(Order, dataSource);
+      repo.setLanguage('fr');
+
+      const order = await repo.findOne({
+        where: { id: 3 },
+        relations: ['product', 'category'],
+      });
+
+      expect(order).toBeDefined();
+
+      // Product in French
+      expect(order?.product?.name).toBe('Clavier');
+      expect(order?.product?.description).toBe('Clavier mécanique avec RGB');
+
+      // Category in French
+      expect(order?.category?.name).toBe('Accessoires');
+    });
+
+    it('should produce clean JSON without raw translation columns on joined entities', async () => {
+      const repo = getI18nRepository(Order, dataSource);
+      repo.setLanguage('es');
+
+      const order = await repo
+        .createQueryBuilder('order')
+        .leftJoinAndSelect('order.product', 'product')
+        .leftJoinAndSelect('order.category', 'category')
+        .where('order.id = :id', { id: 1 })
+        .getOne();
+
+      const json = JSON.parse(JSON.stringify(order));
+
+      // Order should have its normal fields
+      expect(json.orderNumber).toBe('ORD-001');
+      expect(json.quantity).toBe(2);
+
+      // Product should not have raw columns, but should have translations
+      expect(json.product.name_es).toBeUndefined();
+      expect(json.product.name_fr).toBeUndefined();
+      expect(json.product.nameTranslations).toBeDefined();
+      expect(json.product.name).toBe('Portátil');
+
+      // Category should not have raw columns, but should have translations
+      expect(json.category.name_es).toBeUndefined();
+      expect(json.category.name_fr).toBeUndefined();
+      expect(json.category.nameTranslations).toBeDefined();
+      expect(json.category.name).toBe('Electrónica');
+    });
+
+    it('should handle mixed null and present relations', async () => {
+      const repo = getI18nRepository(Order, dataSource);
+      repo.setLanguage('es');
+
+      // Order 4 has product but no direct category relation
+      const order = await repo
+        .createQueryBuilder('order')
+        .leftJoinAndSelect('order.product', 'product')
+        .leftJoinAndSelect('order.category', 'category')
+        .where('order.id = :id', { id: 4 })
+        .getOne();
+
+      expect(order).toBeDefined();
+      expect(order?.orderNumber).toBe('ORD-004');
+
+      // Product should be translated
+      expect(order?.product).toBeDefined();
+      expect(order?.product?.name).toBe('Monitor');
+
+      // Direct category relation should be null
+      expect(order?.category).toBeNull();
     });
   });
 });
