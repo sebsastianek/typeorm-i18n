@@ -165,6 +165,68 @@ export class I18nRepository<Entity extends object> extends Repository<Entity> {
   }
 
   /**
+   * Create a new entity instance with i18n support.
+   * Unlike TypeORM's default create(), this method properly handles translation properties
+   * (e.g., nameTranslations) by copying them to the entity and preparing raw columns.
+   *
+   * @example
+   * ```typescript
+   * const repo = getI18nRepository(Product, dataSource);
+   *
+   * // Create with translations - works correctly
+   * const product = repo.create({
+   *   nameTranslations: { en: 'Laptop', es: 'Portátil', fr: 'Ordinateur portable' },
+   *   descriptionTranslations: { en: 'A laptop', es: 'Un portátil', fr: 'Un ordinateur' },
+   *   price: 999.99,
+   *   isActive: true
+   * });
+   *
+   * await repo.save(product);
+   * ```
+   */
+  override create(): Entity;
+  override create(entityLike: DeepPartial<Entity>): Entity;
+  override create(entityLikeArray: DeepPartial<Entity>[]): Entity[];
+  override create(entityLike?: DeepPartial<Entity> | DeepPartial<Entity>[]): Entity | Entity[] {
+    if (entityLike === undefined) {
+      return super.create();
+    }
+
+    if (Array.isArray(entityLike)) {
+      return entityLike.map((item) => this.createSingleEntity(item));
+    }
+
+    return this.createSingleEntity(entityLike);
+  }
+
+  /**
+   * Create a single entity with i18n support.
+   */
+  private createSingleEntity(entityLike: DeepPartial<Entity>): Entity {
+    // First, let TypeORM create the base entity with column properties
+    const entity = super.create(entityLike);
+
+    // Get i18n metadata to find translation properties
+    const metadata = i18nMetadataStorage.getMetadata(this.target as Function);
+
+    // Copy translation properties from input to entity
+    for (const meta of metadata) {
+      const translationsKey = `${meta.propertyName}Translations`;
+      const translations = (entityLike as any)[translationsKey];
+
+      if (translations && typeof translations === 'object') {
+        // Set the translations property on the entity
+        (entity as any)[translationsKey] = translations;
+      }
+    }
+
+    // Prepare the entity so raw columns are populated from translations
+    prepareI18nUpdate(entity as object);
+
+    return entity;
+  }
+
+  /**
    * Save entity with automatic i18n preparation.
    * Copies translations to raw columns before saving so TypeORM detects changes.
    */

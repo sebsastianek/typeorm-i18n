@@ -750,4 +750,171 @@ describe('I18nRepository', () => {
       expect(product.nameTranslations?.es).toBe('Portátil');
     });
   });
+
+  describe('create() with translations', () => {
+    it('should create entity with translations passed directly', async () => {
+      const repo = getI18nRepository(Product, dataSource);
+
+      const input = {
+        nameTranslations: {
+          en: 'Direct Create EN',
+          es: 'Direct Create ES',
+          fr: 'Direct Create FR',
+        },
+        descriptionTranslations: {
+          en: 'Description EN',
+          es: 'Descripción ES',
+          fr: 'Description FR',
+        },
+        price: 199.99,
+        isActive: true,
+      };
+      const product = repo.create(input as any);
+
+      // Entity should have translations set
+      expect(product.nameTranslations).toBeDefined();
+      expect(product.nameTranslations?.en).toBe('Direct Create EN');
+      expect(product.nameTranslations?.es).toBe('Direct Create ES');
+      expect(product.nameTranslations?.fr).toBe('Direct Create FR');
+
+      // Raw columns should be populated for TypeORM
+      expect((product as any).name).toBe('Direct Create EN');
+      expect((product as any).name_es).toBe('Direct Create ES');
+      expect((product as any).name_fr).toBe('Direct Create FR');
+
+      // Save and verify persistence
+      const saved = await repo.save(product);
+      expect(saved.id).toBeDefined();
+
+      const loaded = await repo.findOne({ where: { id: saved.id } });
+      expect(loaded?.nameTranslations?.en).toBe('Direct Create EN');
+      expect(loaded?.nameTranslations?.es).toBe('Direct Create ES');
+      expect(loaded?.nameTranslations?.fr).toBe('Direct Create FR');
+    });
+
+    it('should create entity with partial translations', async () => {
+      const repo = getI18nRepository(Product, dataSource);
+
+      const input = {
+        nameTranslations: {
+          en: 'English Only',
+        },
+        descriptionTranslations: {
+          en: 'English Description',
+        },
+        price: 99.99,
+        isActive: true,
+      };
+      const product = repo.create(input as any);
+
+      expect(product.nameTranslations?.en).toBe('English Only');
+      expect((product as any).name).toBe('English Only');
+
+      const saved = await repo.save(product);
+      const loaded = await repo.findOne({ where: { id: saved.id } });
+
+      expect(loaded?.nameTranslations?.en).toBe('English Only');
+      // Database NULL values come back as null, not undefined
+      expect(loaded?.nameTranslations?.es).toBeNull();
+      expect(loaded?.nameTranslations?.fr).toBeNull();
+    });
+
+    it('should create multiple entities with translations using array', async () => {
+      const repo = getI18nRepository(Product, dataSource);
+
+      const inputs: any[] = [
+        {
+          nameTranslations: { en: 'Product 1', es: 'Producto 1', fr: 'Produit 1' },
+          descriptionTranslations: { en: 'Desc 1', es: 'Desc 1', fr: 'Desc 1' },
+          price: 100,
+          isActive: true,
+        },
+        {
+          nameTranslations: { en: 'Product 2', es: 'Producto 2', fr: 'Produit 2' },
+          descriptionTranslations: { en: 'Desc 2', es: 'Desc 2', fr: 'Desc 2' },
+          price: 200,
+          isActive: true,
+        },
+      ];
+      const products = repo.create(inputs);
+
+      expect(products).toHaveLength(2);
+      expect(products[0].nameTranslations?.en).toBe('Product 1');
+      expect(products[1].nameTranslations?.es).toBe('Producto 2');
+
+      // Raw columns should be populated
+      expect((products[0] as any).name).toBe('Product 1');
+      expect((products[1] as any).name_es).toBe('Producto 2');
+
+      // Save and verify
+      const saved = await repo.save(products);
+      expect(saved).toHaveLength(2);
+
+      const loaded = await repo.find({ order: { price: 'ASC' } });
+      const newProducts = loaded.filter((p) => p.price >= 100);
+      expect(newProducts.length).toBeGreaterThanOrEqual(2);
+    });
+
+    it('should create empty entity when called without arguments', () => {
+      const repo = getI18nRepository(Product, dataSource);
+
+      const product = repo.create();
+
+      expect(product).toBeDefined();
+      expect(product.id).toBeUndefined();
+      expect(product.name).toBeUndefined();
+    });
+
+    it('should handle mixed translations and regular column properties', async () => {
+      const repo = getI18nRepository(Product, dataSource);
+
+      const input = {
+        nameTranslations: { en: 'Mixed Product', es: 'Producto Mixto', fr: 'Produit Mixte' },
+        descriptionTranslations: { en: 'Mixed Desc', es: 'Desc Mixta', fr: 'Desc Mixte' },
+        price: 299.99,
+        isActive: false,
+      };
+      const product = repo.create(input as any);
+
+      // Translations should be set
+      expect(product.nameTranslations?.en).toBe('Mixed Product');
+
+      // Regular columns should also be set
+      expect(product.price).toBe(299.99);
+      expect(product.isActive).toBe(false);
+
+      const saved = await repo.save(product);
+      const loaded = await repo.findOne({ where: { id: saved.id } });
+
+      expect(loaded?.nameTranslations?.en).toBe('Mixed Product');
+      expect(loaded?.price).toBe(299.99);
+      expect(loaded?.isActive).toBe(false);
+    });
+
+    it('should work with language context after create and save', async () => {
+      const repo = getI18nRepository(Product, dataSource);
+
+      const input = {
+        nameTranslations: { en: 'Context Test', es: 'Prueba Contexto', fr: 'Test Contexte' },
+        descriptionTranslations: { en: 'Desc EN', es: 'Desc ES', fr: 'Desc FR' },
+        price: 50,
+        isActive: true,
+      };
+      const product = repo.create(input as any);
+
+      const saved = await repo.save(product);
+
+      // Query with Spanish context
+      repo.setLanguage('es');
+      const loadedEs = await repo.findOne({ where: { name: 'Prueba Contexto' } as any });
+      expect(loadedEs?.id).toBe(saved.id);
+      expect(loadedEs?.name).toBe('Prueba Contexto');
+
+      // Query with French context
+      repo.setLanguage('fr');
+      const loadedFr = await repo.findOne({ where: { name: 'Test Contexte' } as any });
+      expect(loadedFr?.id).toBe(saved.id);
+      expect(loadedFr?.name).toBe('Test Contexte');
+    });
+  });
 });
