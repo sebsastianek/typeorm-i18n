@@ -376,6 +376,167 @@ describe('QueryBuilder and Type Helpers', () => {
       });
     });
 
+    describe('getManyAndCount with transformation', () => {
+      it('should transform entities and return count', async () => {
+        const repo = getI18nRepository(Product, dataSource);
+        repo.setLanguage('es');
+
+        const [products, count] = await repo
+          .createQueryBuilder('product')
+          .getManyAndCount();
+
+        expect(count).toBeGreaterThan(0);
+        expect(products).toHaveLength(count);
+        products.forEach((product: Product) => {
+          expect(product.name).toBe(product.nameTranslations?.es);
+        });
+      });
+
+      it('should transform entities with where clause and return correct count', async () => {
+        const repo = getI18nRepository(Product, dataSource);
+        repo.setLanguage('es');
+
+        const [products, count] = await repo
+          .createQueryBuilder('product')
+          .where({ name: 'Portátil' })
+          .getManyAndCount();
+
+        expect(count).toBe(1);
+        expect(products).toHaveLength(1);
+        expect(products[0].name).toBe('Portátil');
+        expect(products[0].nameTranslations?.en).toBe('Laptop');
+      });
+
+      it('should return empty array and zero count when no matches', async () => {
+        const repo = getI18nRepository(Product, dataSource);
+        repo.setLanguage('es');
+
+        const [products, count] = await repo
+          .createQueryBuilder('product')
+          .where({ name: 'NonExistentProduct' })
+          .getManyAndCount();
+
+        expect(count).toBe(0);
+        expect(products).toHaveLength(0);
+      });
+
+      it('should work with pagination and return total count', async () => {
+        const repo = getI18nRepository(Product, dataSource);
+        repo.setLanguage('es');
+
+        const [products, count] = await repo
+          .createQueryBuilder('product')
+          .take(2)
+          .getManyAndCount();
+
+        expect(products).toHaveLength(2);
+        expect(count).toBeGreaterThanOrEqual(2);
+        products.forEach((product: Product) => {
+          expect(product.name).toBe(product.nameTranslations?.es);
+        });
+      });
+
+      it('should work with orderBy and return correct count', async () => {
+        const repo = getI18nRepository(Product, dataSource);
+        repo.setLanguage('es');
+
+        const [products, count] = await repo
+          .createQueryBuilder('product')
+          .orderBy('product.name', 'ASC')
+          .getManyAndCount();
+
+        expect(count).toBeGreaterThan(0);
+        expect(products).toHaveLength(count);
+
+        const names = products.map((p: Product) => p.nameTranslations?.es);
+        const sortedNames = [...names].sort();
+        expect(names).toEqual(sortedNames);
+      });
+
+      it('should transform entities using default language', async () => {
+        const repo = getI18nRepository(Product, dataSource);
+        repo.setLanguage('en');
+
+        const [products, count] = await repo
+          .createQueryBuilder('product')
+          .where({ name: 'Laptop' })
+          .getManyAndCount();
+
+        expect(count).toBe(1);
+        expect(products).toHaveLength(1);
+        expect(products[0].name).toBe('Laptop');
+      });
+
+      it('should work without language set', async () => {
+        const repo = getI18nRepository(Product, dataSource);
+
+        const [products, count] = await repo
+          .createQueryBuilder('product')
+          .where({ name: 'Laptop' })
+          .getManyAndCount();
+
+        expect(count).toBe(1);
+        expect(products).toHaveLength(1);
+        expect(products[0].nameTranslations?.en).toBe('Laptop');
+      });
+    });
+
+    describe('getRawAndEntities with transformation', () => {
+      it('should transform entities and return raw results', async () => {
+        const repo = getI18nRepository(Product, dataSource);
+        repo.setLanguage('es');
+
+        const result = await repo
+          .createQueryBuilder('product')
+          .getRawAndEntities();
+
+        expect(result.entities.length).toBeGreaterThan(0);
+        expect(result.raw.length).toBe(result.entities.length);
+        result.entities.forEach((product: Product) => {
+          expect(product.name).toBe(product.nameTranslations?.es);
+        });
+      });
+
+      it('should transform entities with where clause', async () => {
+        const repo = getI18nRepository(Product, dataSource);
+        repo.setLanguage('es');
+
+        const result = await repo
+          .createQueryBuilder('product')
+          .where({ name: 'Portátil' })
+          .getRawAndEntities();
+
+        expect(result.entities).toHaveLength(1);
+        expect(result.entities[0].name).toBe('Portátil');
+        expect(result.entities[0].nameTranslations?.en).toBe('Laptop');
+      });
+
+      it('should return empty arrays when no matches', async () => {
+        const repo = getI18nRepository(Product, dataSource);
+        repo.setLanguage('es');
+
+        const result = await repo
+          .createQueryBuilder('product')
+          .where({ name: 'NonExistentProduct' })
+          .getRawAndEntities();
+
+        expect(result.entities).toHaveLength(0);
+        expect(result.raw).toHaveLength(0);
+      });
+
+      it('should work without language set', async () => {
+        const repo = getI18nRepository(Product, dataSource);
+
+        const result = await repo
+          .createQueryBuilder('product')
+          .where({ name: 'Laptop' })
+          .getRawAndEntities();
+
+        expect(result.entities).toHaveLength(1);
+        expect(result.entities[0].nameTranslations?.en).toBe('Laptop');
+      });
+    });
+
     describe('Default Language in QueryBuilder', () => {
       it('should use base column in where when language is default', async () => {
         const repo = getI18nRepository(Product, dataSource);

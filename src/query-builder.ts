@@ -279,6 +279,36 @@ export class I18nQueryBuilder<Entity extends ObjectLiteral> extends SelectQueryB
   }
 
   /**
+   * Get many entities and count with language-aware transformation.
+   * Overrides the base getManyAndCount to apply language context to loaded entities
+   * and their relations.
+   */
+  override async getManyAndCount(): Promise<[Entity[], number]> {
+    const [entities, count] = await super.getManyAndCount();
+    if (this.__i18nLanguage) {
+      for (const entity of entities) {
+        transformEntityWithRelations(entity, this.__i18nLanguage);
+      }
+    }
+    return [entities, count];
+  }
+
+  /**
+   * Get raw results and entities with language-aware transformation.
+   * Overrides the base getRawAndEntities to apply language context to loaded entities
+   * and their relations.
+   */
+  override async getRawAndEntities<T = any>(): Promise<{ entities: Entity[]; raw: T[] }> {
+    const result = await super.getRawAndEntities<T>();
+    if (this.__i18nLanguage) {
+      for (const entity of result.entities) {
+        transformEntityWithRelations(entity, this.__i18nLanguage);
+      }
+    }
+    return result;
+  }
+
+  /**
    * Get one entity with language-aware transformation.
    * Overrides the base getOne to apply language context to loaded entity
    * and its relations.

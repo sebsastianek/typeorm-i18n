@@ -165,6 +165,16 @@ export class I18nRepository<Entity extends object> extends Repository<Entity> {
   }
 
   /**
+   * Preload an entity with i18n support.
+   * Creates a new entity from the given partial with ID, loading from DB if exists.
+   * Loaded entity will have its i18n properties set based on current language.
+   */
+  override async preload(entityLike: DeepPartial<Entity>): Promise<Entity | undefined> {
+    const entity = await super.preload(entityLike);
+    return entity ? this.setLanguageOnEntity(entity) : undefined;
+  }
+
+  /**
    * Create a new entity instance with i18n support.
    * Unlike TypeORM's default create(), this method properly handles translation properties
    * (e.g., nameTranslations) by copying them to the entity and preparing raw columns.

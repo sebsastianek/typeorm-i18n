@@ -917,4 +917,74 @@ describe('I18nRepository', () => {
       expect(loadedFr?.name).toBe('Test Contexte');
     });
   });
+
+  describe('preload()', () => {
+    it('should preload entity with i18n transformation', async () => {
+      const repo = getI18nRepository(Product, dataSource);
+      repo.setLanguage('es');
+
+      const preloaded = await repo.preload({ id: 1 } as any);
+
+      expect(preloaded).toBeDefined();
+      expect(preloaded?.name).toBe('Portátil');
+      expect(preloaded?.nameTranslations?.en).toBe('Laptop');
+      expect(preloaded?.nameTranslations?.es).toBe('Portátil');
+    });
+
+    it('should preload entity with default language', async () => {
+      const repo = getI18nRepository(Product, dataSource);
+      repo.setLanguage('en');
+
+      const preloaded = await repo.preload({ id: 1 } as any);
+
+      expect(preloaded).toBeDefined();
+      expect(preloaded?.name).toBe('Laptop');
+      expect(preloaded?.nameTranslations?.en).toBe('Laptop');
+    });
+
+    it('should preload entity without language set', async () => {
+      const repo = getI18nRepository(Product, dataSource);
+
+      const preloaded = await repo.preload({ id: 1 } as any);
+
+      expect(preloaded).toBeDefined();
+      expect(preloaded?.nameTranslations?.en).toBe('Laptop');
+    });
+
+    it('should return undefined when entity does not exist', async () => {
+      const repo = getI18nRepository(Product, dataSource);
+      repo.setLanguage('es');
+
+      const preloaded = await repo.preload({ id: 999999 } as any);
+
+      expect(preloaded).toBeUndefined();
+    });
+
+    it('should merge partial data with loaded entity', async () => {
+      const repo = getI18nRepository(Product, dataSource);
+      repo.setLanguage('es');
+
+      const preloaded = await repo.preload({
+        id: 1,
+        price: 1500,
+      } as any);
+
+      expect(preloaded).toBeDefined();
+      expect(preloaded?.id).toBe(1);
+      expect(preloaded?.price).toBe(1500);
+      expect(preloaded?.name).toBe('Portátil');
+      expect(preloaded?.nameTranslations?.es).toBe('Portátil');
+    });
+
+    it('should work with French language context', async () => {
+      const repo = getI18nRepository(Product, dataSource);
+      repo.setLanguage('fr');
+
+      const preloaded = await repo.preload({ id: 1 } as any);
+
+      expect(preloaded).toBeDefined();
+      expect(preloaded?.name).toBe('Ordinateur portable');
+      expect(preloaded?.nameTranslations?.fr).toBe('Ordinateur portable');
+    });
+  });
 });
