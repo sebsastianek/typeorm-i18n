@@ -26,6 +26,15 @@ export class I18nQueryBuilder<Entity extends ObjectLiteral> extends SelectQueryB
   private __i18nLanguage: string | null = null;
   private __i18nTarget: Function | null = null;
 
+  constructor(queryBuilderOrConnection: any, queryRunner?: any) {
+    super(queryBuilderOrConnection, queryRunner);
+    // Preserve i18n context when TypeORM clones via `new this.constructor(this)`.
+    if (queryBuilderOrConnection instanceof I18nQueryBuilder) {
+      this.__i18nLanguage = queryBuilderOrConnection.__i18nLanguage;
+      this.__i18nTarget = queryBuilderOrConnection.__i18nTarget;
+    }
+  }
+
   /**
    * Set the i18n context for this query builder
    * @internal
@@ -344,17 +353,9 @@ export function createI18nQueryBuilder<Entity extends ObjectLiteral>(
   target: Function,
   alias?: string
 ): I18nQueryBuilder<Entity> {
-  // Copy all properties from the original QueryBuilder to the I18nQueryBuilder
-  const i18nQb = Object.assign(
-    Object.create(I18nQueryBuilder.prototype),
-    qb
-  ) as I18nQueryBuilder<Entity>;
-
-  // Set up the prototype chain properly
-  Object.setPrototypeOf(i18nQb, I18nQueryBuilder.prototype);
-
-  // Set the i18n context
+  // Wrap the existing builder's state (TypeORM's QueryBuilder copy-constructor)
+  // in an I18nQueryBuilder, then attach the i18n context.
+  const i18nQb = new I18nQueryBuilder<Entity>(qb);
   i18nQb.setI18nContext(language, target, alias);
-
   return i18nQb;
 }

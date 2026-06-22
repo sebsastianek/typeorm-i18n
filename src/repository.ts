@@ -1,9 +1,21 @@
-import { Repository, DataSource, FindManyOptions, FindOneOptions, FindOptionsWhere, DeepPartial, SaveOptions, FindOptionsOrder } from 'typeorm';
+import { Repository, DataSource, FindManyOptions, FindOneOptions, FindOptionsWhere, DeepPartial, SaveOptions, FindOptionsOrder, FindOperator, EntityMetadata, UpdateResult, InsertResult } from 'typeorm';
+import { QueryDeepPartialEntity } from 'typeorm/query-builder/QueryPartialEntity';
 import { i18nMetadataStorage } from './metadata';
 import { LANGUAGE_DELIMITER } from './constants';
+import { getTranslationColumnName } from './decorator';
 import { I18nQueryBuilder, createI18nQueryBuilder } from './query-builder';
-import { normalizeLanguageCode } from './language-utils';
-import { prepareI18nUpdate, transformEntityWithRelations } from './utils';
+import { normalizeLanguageCode, assertValidLanguageCode } from './language-utils';
+import {
+  prepareI18nUpdate,
+  mergeI18nSingleValues,
+  diffI18nColumns,
+  transformEntityWithRelations,
+} from './utils';
+import {
+  I18N_LANGUAGE_KEY,
+  I18N_TRANSLATIONS_SNAPSHOT_KEY,
+  I18N_SKIP_SUBSCRIBER_UPDATE_KEY,
+} from './types';
 
 /**
  * Extended repository with i18n support.
@@ -39,8 +51,37 @@ export class I18nRepository<Entity extends object> extends Repository<Entity> {
    * ```
    */
   setLanguage(language: string): this {
-    this.currentLanguage = normalizeLanguageCode(language);
+    const normalized = normalizeLanguageCode(language);
+    this.assertLanguageAllowed(normalized);
+    this.currentLanguage = normalized;
     return this;
+  }
+
+  /**
+   * Validate a (normalized) language code before it is stored and used to build
+   * column identifiers.
+   */
+  private assertLanguageAllowed(language: string): void {
+    assertValidLanguageCode(language);
+
+    const metadata = i18nMetadataStorage.getMetadata(this.target as Function);
+    if (metadata.length === 0) {
+      return;
+    }
+
+    const allowed = new Set<string>();
+    for (const meta of metadata) {
+      for (const lang of meta.options.languages) {
+        allowed.add(lang);
+      }
+    }
+
+    if (!allowed.has(language)) {
+      throw new Error(
+        `Language "${language}" is not configured for ${(this.target as Function).name}. ` +
+        `Configured languages: ${Array.from(allowed).join(', ')}.`
+      );
+    }
   }
 
   /**
@@ -63,9 +104,10 @@ export class I18nRepository<Entity extends object> extends Repository<Entity> {
    * Loaded entities will have their i18n properties set based on current language.
    */
   override async find(options?: FindManyOptions<Entity>): Promise<Entity[]> {
+    const lang = this.currentLanguage;
     const transformedOptions = this.transformFindOptions(options);
     const entities = await super.find(transformedOptions);
-    return this.setLanguageOnEntities(entities);
+    return this.setLanguageOnEntities(entities, lang);
   }
 
   /**
@@ -73,63 +115,70 @@ export class I18nRepository<Entity extends object> extends Repository<Entity> {
    * Loaded entity will have its i18n properties set based on current language.
    */
   override async findOne(options: FindOneOptions<Entity>): Promise<Entity | null> {
+    const lang = this.currentLanguage;
     const transformedOptions = this.transformFindOptions(options) || options;
     const entity = await super.findOne(transformedOptions);
-    return entity ? this.setLanguageOnEntity(entity) : null;
+    return entity ? this.setLanguageOnEntity(entity, lang) : null;
   }
 
   /**
    * Find one entity by ID or conditions
    */
   override async findOneBy(where: FindOptionsWhere<Entity>): Promise<Entity | null> {
+    const lang = this.currentLanguage;
     const transformedWhere = this.transformWhereClause(where);
     const entity = await super.findOneBy(transformedWhere);
-    return entity ? this.setLanguageOnEntity(entity) : null;
+    return entity ? this.setLanguageOnEntity(entity, lang) : null;
   }
 
   /**
    * Find entities by conditions
    */
   override async findBy(where: FindOptionsWhere<Entity>): Promise<Entity[]> {
+    const lang = this.currentLanguage;
     const transformedWhere = this.transformWhereClause(where);
     const entities = await super.findBy(transformedWhere);
-    return this.setLanguageOnEntities(entities);
+    return this.setLanguageOnEntities(entities, lang);
   }
 
   /**
    * Find entities and count with automatic language column mapping.
    */
   override async findAndCount(options?: FindManyOptions<Entity>): Promise<[Entity[], number]> {
+    const lang = this.currentLanguage;
     const transformedOptions = this.transformFindOptions(options);
     const [entities, count] = await super.findAndCount(transformedOptions);
-    return [this.setLanguageOnEntities(entities), count];
+    return [this.setLanguageOnEntities(entities, lang), count];
   }
 
   /**
    * Find entities and count by conditions
    */
   override async findAndCountBy(where: FindOptionsWhere<Entity>): Promise<[Entity[], number]> {
+    const lang = this.currentLanguage;
     const transformedWhere = this.transformWhereClause(where);
     const [entities, count] = await super.findAndCountBy(transformedWhere);
-    return [this.setLanguageOnEntities(entities), count];
+    return [this.setLanguageOnEntities(entities, lang), count];
   }
 
   /**
    * Find one entity or fail with automatic language column mapping.
    */
   override async findOneOrFail(options: FindOneOptions<Entity>): Promise<Entity> {
+    const lang = this.currentLanguage;
     const transformedOptions = this.transformFindOptions(options) || options;
     const entity = await super.findOneOrFail(transformedOptions);
-    return this.setLanguageOnEntity(entity);
+    return this.setLanguageOnEntity(entity, lang);
   }
 
   /**
    * Find one entity by conditions or fail
    */
   override async findOneByOrFail(where: FindOptionsWhere<Entity>): Promise<Entity> {
+    const lang = this.currentLanguage;
     const transformedWhere = this.transformWhereClause(where);
     const entity = await super.findOneByOrFail(transformedWhere);
-    return this.setLanguageOnEntity(entity);
+    return this.setLanguageOnEntity(entity, lang);
   }
 
   /**
@@ -165,13 +214,114 @@ export class I18nRepository<Entity extends object> extends Repository<Entity> {
   }
 
   /**
+   * Update with i18n support. Both the criteria and the partial values have
+   * their i18n properties mapped to the correct language column(s). A
+   * `nameTranslations` object is expanded into all language columns; a scalar
+   * `name` is routed to the current language's column.
+   */
+  override update(
+    criteria: Parameters<Repository<Entity>['update']>[0],
+    partialEntity: QueryDeepPartialEntity<Entity>
+  ): Promise<UpdateResult> {
+    const transformedCriteria =
+      criteria && typeof criteria === 'object' && !Array.isArray(criteria) && !(criteria instanceof FindOperator)
+        ? this.transformWhereClause(criteria)
+        : criteria;
+    return super.update(
+      transformedCriteria as any,
+      this.transformPartialEntity(partialEntity) as QueryDeepPartialEntity<Entity>
+    );
+  }
+
+  /**
+   * Insert with i18n support. i18n properties in the values are mapped to their
+   * language columns (and translation objects expanded).
+   */
+  override insert(
+    entity: QueryDeepPartialEntity<Entity> | QueryDeepPartialEntity<Entity>[]
+  ): Promise<InsertResult> {
+    const transformed = Array.isArray(entity)
+      ? entity.map((e) => this.transformPartialEntity(e))
+      : this.transformPartialEntity(entity);
+    return super.insert(transformed as any);
+  }
+
+  /**
+   * Upsert with i18n support (i18n properties mapped to language columns).
+   */
+  override upsert(
+    entityOrEntities: QueryDeepPartialEntity<Entity> | QueryDeepPartialEntity<Entity>[],
+    conflictPathsOrOptions: Parameters<Repository<Entity>['upsert']>[1]
+  ): Promise<InsertResult> {
+    const transformed = Array.isArray(entityOrEntities)
+      ? entityOrEntities.map((e) => this.transformPartialEntity(e))
+      : this.transformPartialEntity(entityOrEntities);
+    return super.upsert(transformed as any, conflictPathsOrOptions);
+  }
+
+  /**
+   * Map i18n properties in a partial entity to their language columns. A scalar
+   * `<prop>` is routed to the current language (or default) column; a
+   * `<prop>Translations` object expands into every language column. When both
+   * are present, the translations object wins for the languages it specifies.
+   */
+  private transformPartialEntity(partial: any): any {
+    if (!partial || typeof partial !== 'object' || Array.isArray(partial)) {
+      return partial;
+    }
+
+    const metadata = i18nMetadataStorage.getMetadata(this.target as Function);
+    if (metadata.length === 0) {
+      return partial;
+    }
+
+    const isTranslationsKey = (key: string) =>
+      metadata.some((m) => `${m.propertyName}Translations` === key);
+
+    const result: any = {};
+
+    // Pass 1: scalar i18n properties + passthrough of non-i18n properties.
+    for (const [key, value] of Object.entries(partial)) {
+      if (isTranslationsKey(key)) {
+        continue; // applied in pass 2 so it takes precedence
+      }
+      const meta = metadata.find((m) => m.propertyName === key);
+      if (meta) {
+        const lang = this.currentLanguage || meta.options.default_language;
+        result[lang === meta.options.default_language ? key : getTranslationColumnName(key, lang)] = value;
+      } else {
+        result[key] = value;
+      }
+    }
+
+    // Pass 2: translations objects override any scalar value for the same column.
+    for (const [key, value] of Object.entries(partial)) {
+      const translationsMeta = metadata.find((m) => `${m.propertyName}Translations` === key);
+      if (!translationsMeta || !value || typeof value !== 'object') {
+        continue;
+      }
+      const { propertyName, options } = translationsMeta;
+      for (const lang of options.languages) {
+        const langValue = (value as any)[lang];
+        if (langValue === undefined) {
+          continue;
+        }
+        result[lang === options.default_language ? propertyName : getTranslationColumnName(propertyName, lang)] = langValue;
+      }
+    }
+
+    return result;
+  }
+
+  /**
    * Preload an entity with i18n support.
    * Creates a new entity from the given partial with ID, loading from DB if exists.
    * Loaded entity will have its i18n properties set based on current language.
    */
   override async preload(entityLike: DeepPartial<Entity>): Promise<Entity | undefined> {
+    const lang = this.currentLanguage;
     const entity = await super.preload(entityLike);
-    return entity ? this.setLanguageOnEntity(entity) : undefined;
+    return entity ? this.setLanguageOnEntity(entity, lang) : undefined;
   }
 
   /**
@@ -230,7 +380,9 @@ export class I18nRepository<Entity extends object> extends Repository<Entity> {
       }
     }
 
-    // Prepare the entity so raw columns are populated from translations
+    // Stamp the active language so single-value inputs route to the right
+    // column at save time, then prepare raw columns from translations.
+    this.stampLanguage(entity as object);
     prepareI18nUpdate(entity as object);
 
     return entity;
@@ -248,43 +400,127 @@ export class I18nRepository<Entity extends object> extends Repository<Entity> {
     entity: T,
     options?: SaveOptions
   ): Promise<T & Entity>;
-  override save<T extends DeepPartial<Entity>>(
+  override async save<T extends DeepPartial<Entity>>(
     entityOrEntities: T | T[],
     options?: SaveOptions
   ): Promise<(T & Entity) | (T & Entity)[]> {
     if (Array.isArray(entityOrEntities)) {
       const entities = entityOrEntities as T[];
-      for (const entity of entities) {
-        prepareI18nUpdate(entity as object);
-      }
-      return super.save(entities, options);
+      const wasLoaded = entities.map((e) => this.prepareForSave(e as object));
+      const saved = await super.save(entities, options);
+      await this.finishSave(saved as object[], wasLoaded);
+      return saved;
     }
     const entity = entityOrEntities as T;
-    prepareI18nUpdate(entity as object);
-    return super.save(entity, options);
+    const wasLoaded = this.prepareForSave(entity as object);
+    const saved = await super.save(entity, options);
+    await this.finishSave([saved as object], [wasLoaded]);
+    return saved;
   }
 
   /**
-   * Set the current language on a single entity and re-transform its i18n properties.
-   * This updates both the language symbol and the single-value properties.
-   * Also recursively transforms any loaded relations.
+   * Stamp the active language, fold single-value edits into translations, and
+   * mark loaded entities so the subscriber leaves their translation columns to
+   * this repository. Returns whether the entity was loaded (i.e. an update).
    */
-  private setLanguageOnEntity(entity: Entity): Entity {
+  private prepareForSave(entity: object): boolean {
+    const wasLoaded = (entity as any)[I18N_TRANSLATIONS_SNAPSHOT_KEY] !== undefined;
+    this.stampLanguage(entity);
+    mergeI18nSingleValues(entity);
+    if (wasLoaded) {
+      (entity as any)[I18N_SKIP_SUBSCRIBER_UPDATE_KEY] = true;
+    }
+    return wasLoaded;
+  }
+
+  private async finishSave(entities: object[], wasLoaded: boolean[]): Promise<void> {
+    for (let i = 0; i < entities.length; i++) {
+      const entity = entities[i];
+      if (wasLoaded[i]) {
+        delete (entity as any)[I18N_SKIP_SUBSCRIBER_UPDATE_KEY];
+        await this.persistChangedTranslations(entity);
+      }
+      this.restoreDisplayLanguage(entity);
+    }
+  }
+
+  /**
+   * Persist the non-default translation columns that changed since load, keyed
+   * on the full primary key. Only changed languages are written, so a concurrent
+   * writer that touched a different language is not clobbered. The default
+   * column is persisted by TypeORM's own UPDATE (it is the single-value column).
+   */
+  private async persistChangedTranslations(entity: object): Promise<void> {
+    const changes = diffI18nColumns(entity).filter((c) => !c.isDefault);
+    if (changes.length === 0) {
+      return;
+    }
+
+    const where: Record<string, any> = {};
+    for (const pc of this.metadata.primaryColumns) {
+      const value = (entity as any)[pc.propertyName];
+      if (value === undefined || value === null) {
+        return;
+      }
+      where[pc.propertyName] = value;
+    }
+    if (Object.keys(where).length === 0) {
+      return;
+    }
+
+    const values: Record<string, any> = {};
+    for (const change of changes) {
+      values[change.column] = change.value;
+    }
+
+    await this.manager
+      .createQueryBuilder()
+      .update(this.metadata.target)
+      .set(values)
+      .where(where)
+      .execute();
+  }
+
+  /**
+   * Stamp the repository's current language onto an entity (without overwriting
+   * a language already present from a previous load). This is what lets a
+   * single-value write under setLanguage() land in the correct language column.
+   */
+  private stampLanguage(entity: object): void {
+    if (this.currentLanguage && (entity as any)[I18N_LANGUAGE_KEY] === undefined) {
+      (entity as any)[I18N_LANGUAGE_KEY] = this.currentLanguage;
+    }
+  }
+
+  /**
+   * After a save, re-apply the current language so the returned entity's
+   * single-value properties reflect the active language.
+   */
+  private restoreDisplayLanguage(entity: object): void {
     if (this.currentLanguage) {
-      // Re-transform the entity and all its relations with the current language
       transformEntityWithRelations(entity, this.currentLanguage);
+    }
+  }
+
+  /**
+   * Re-transform a loaded entity (and its relations) for the given language.
+   * The language is passed in (snapshotted by the caller before its await) so a
+   * concurrent setLanguage() on a shared instance cannot affect an in-flight read.
+   */
+  private setLanguageOnEntity(entity: Entity, language: string | null): Entity {
+    if (language) {
+      transformEntityWithRelations(entity, language);
     }
     return entity;
   }
 
   /**
-   * Set the current language on multiple entities and their relations
+   * Re-transform multiple loaded entities (and their relations) for the language.
    */
-  private setLanguageOnEntities(entities: Entity[]): Entity[] {
-    if (this.currentLanguage) {
+  private setLanguageOnEntities(entities: Entity[], language: string | null): Entity[] {
+    if (language) {
       for (const entity of entities) {
-        // Re-transform each entity and its relations with the current language
-        transformEntityWithRelations(entity, this.currentLanguage);
+        transformEntityWithRelations(entity, language);
       }
     }
     return entities;
@@ -316,74 +552,76 @@ export class I18nRepository<Entity extends object> extends Repository<Entity> {
   }
 
   /**
-   * Transform order clause to use language-specific columns
+   * Map an i18n property to its language column for the current language.
+   */
+  private languageColumnFor(propertyName: string, defaultLanguage: string): string {
+    return this.currentLanguage === defaultLanguage
+      ? propertyName
+      : `${propertyName}${LANGUAGE_DELIMITER}${this.currentLanguage}`;
+  }
+
+  /**
+   * Whether a value is a nested condition object worth recursing into (i.e. a
+   * relation condition), as opposed to a FindOperator / Date / Buffer leaf.
+   */
+  private isNestedConditions(value: any): boolean {
+    return (
+      value != null &&
+      typeof value === 'object' &&
+      !Array.isArray(value) &&
+      !(value instanceof FindOperator) &&
+      !(value instanceof Date) &&
+      !Buffer.isBuffer(value)
+    );
+  }
+
+  /**
+   * Transform order clause to use language-specific columns (root + relations).
    */
   private transformOrderClause(order: FindOptionsOrder<Entity>): FindOptionsOrder<Entity> {
     if (!order || !this.currentLanguage) {
       return order;
     }
-
-    const metadata = i18nMetadataStorage.getMetadata(this.target as Function);
-    const transformed: any = {};
-
-    for (const [key, value] of Object.entries(order)) {
-      const i18nMeta = metadata.find((m) => m.propertyName === key);
-
-      if (i18nMeta) {
-        const { options } = i18nMeta;
-        let columnName: string;
-        if (this.currentLanguage === options.default_language) {
-          columnName = key;
-        } else {
-          columnName = `${key}${LANGUAGE_DELIMITER}${this.currentLanguage}`;
-        }
-        transformed[columnName] = value;
-      } else {
-        transformed[key] = value;
-      }
-    }
-
-    return transformed;
+    return this.transformConditionsForMetadata(order, this.metadata);
   }
 
   /**
-   * Transform where clause to use language-specific columns
+   * Transform where clause to use language-specific columns (root + relations).
    */
   private transformWhereClause(where: any): any {
     if (!where || !this.currentLanguage) {
       return where;
     }
-
-    // Handle array of where clauses
     if (Array.isArray(where)) {
       return where.map((w) => this.transformWhereClause(w));
     }
+    return this.transformConditionsForMetadata(where, this.metadata);
+  }
 
-    // Get i18n metadata for this entity
-    const metadata = i18nMetadataStorage.getMetadata(this.target as Function);
+  /**
+   * Recursively transform a where/order object: i18n properties become their
+   * language column, and relation properties are recursed using the relation's
+   * own entity metadata.
+   */
+  private transformConditionsForMetadata(conditions: any, entityMetadata: EntityMetadata): any {
+    if (!this.isNestedConditions(conditions)) {
+      return conditions;
+    }
 
+    const i18nMeta = i18nMetadataStorage.getMetadata(entityMetadata.target as Function);
     const transformed: any = {};
 
-    for (const [key, value] of Object.entries(where)) {
-      const i18nMeta = metadata.find((m) => m.propertyName === key);
+    for (const [key, value] of Object.entries(conditions)) {
+      const meta = i18nMeta.find((m) => m.propertyName === key);
+      if (meta) {
+        transformed[this.languageColumnFor(key, meta.options.default_language)] = value;
+        continue;
+      }
 
-      if (i18nMeta) {
-        // This is an i18n column
-        const { options } = i18nMeta;
-
-        // Determine which column to use
-        let columnName: string;
-        if (this.currentLanguage === options.default_language) {
-          // Use base column for default language
-          columnName = key;
-        } else {
-          // Use translated column for non-default language
-          columnName = `${key}${LANGUAGE_DELIMITER}${this.currentLanguage}`;
-        }
-
-        transformed[columnName] = value;
+      const relation = entityMetadata.findRelationWithPropertyPath(key);
+      if (relation && this.isNestedConditions(value)) {
+        transformed[key] = this.transformConditionsForMetadata(value, relation.inverseEntityMetadata);
       } else {
-        // Not an i18n column, keep as is
         transformed[key] = value;
       }
     }

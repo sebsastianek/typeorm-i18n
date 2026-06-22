@@ -5,10 +5,18 @@ import {
   LoadEvent,
   UpdateEvent,
 } from 'typeorm';
-import { transformAfterLoad, transformBeforeSave } from './utils';
-import { I18N_LANGUAGE_KEY, I18nEntity } from './types';
+import {
+  transformAfterLoad,
+  prepareI18nUpdate,
+  mergeI18nSingleValues,
+  diffI18nColumns,
+} from './utils';
+import {
+  I18N_LANGUAGE_KEY,
+  I18N_SKIP_SUBSCRIBER_UPDATE_KEY,
+  I18nEntity,
+} from './types';
 import { i18nMetadataStorage } from './metadata';
-import { getTranslationColumnName } from './decorator';
 
 /**
  * TypeORM entity subscriber that automatically transforms I18n columns
@@ -42,70 +50,62 @@ export class I18nSubscriber implements EntitySubscriberInterface {
   }
 
   /**
-   * Called before an entity is inserted into the database.
-   * Transforms I18nValue objects into flat columns.
+   * Flatten translations (and any single-value edit) into the raw per-language
+   * columns so the INSERT carries every translation.
    */
   beforeInsert(event: InsertEvent<any>): void {
-    if (event.entity) {
-      const transformed = transformBeforeSave(event.entity);
-      Object.assign(event.entity, transformed);
+    if (event.entity && i18nMetadataStorage.getMetadata(event.entity.constructor).length > 0) {
+      prepareI18nUpdate(event.entity);
     }
   }
 
   /**
-   * Called before an entity is updated in the database.
-   * Transforms I18nValue objects into flat columns.
+   * Persist changed translation columns on update.
    *
-   * Note: TypeORM calculates changed columns before this hook runs.
-   * We need to execute our own update for i18n columns to ensure changes are persisted.
+   * TypeORM computes its column diff before this hook, so i18n columns are
+   * written with an explicit UPDATE keyed on the full primary key (composite-key
+   * safe). Only languages that changed since load are written, so a concurrent
+   * writer that touched a different language is not clobbered.
+   *
+   * Skipped when I18nRepository has already persisted the change itself.
    */
   async beforeUpdate(event: UpdateEvent<any>): Promise<void> {
-    if (!event.entity) {
+    const entity = event.entity as any;
+    if (!entity || entity[I18N_SKIP_SUBSCRIBER_UPDATE_KEY]) {
+      return;
+    }
+    if (i18nMetadataStorage.getMetadata(entity.constructor).length === 0) {
       return;
     }
 
-    const metadata = i18nMetadataStorage.getMetadata(event.entity.constructor);
-    if (metadata.length === 0) {
+    mergeI18nSingleValues(entity);
+    const changes = diffI18nColumns(entity);
+    if (changes.length === 0) {
       return;
     }
 
-    // Build update values from translations
+    const where: Record<string, any> = {};
+    for (const pc of event.metadata.primaryColumns) {
+      const value = entity[pc.propertyName];
+      if (value === undefined || value === null) {
+        return;
+      }
+      where[pc.propertyName] = value;
+    }
+    if (Object.keys(where).length === 0) {
+      return;
+    }
+
     const updateValues: Record<string, any> = {};
-    let hasI18nUpdates = false;
-
-    for (const meta of metadata) {
-      const translationsKey = `${meta.propertyName}Translations`;
-      const translations: Record<string, any> | undefined = event.entity[translationsKey];
-
-      if (translations && typeof translations === 'object') {
-        hasI18nUpdates = true;
-        // Flatten translations to column values
-        for (const [lang, value] of Object.entries(translations) as [string, any][]) {
-          const columnName = lang === meta.options.default_language
-            ? meta.propertyName
-            : getTranslationColumnName(meta.propertyName, lang);
-          updateValues[columnName] = value;
-        }
-      }
+    for (const change of changes) {
+      updateValues[change.column] = change.value;
     }
 
-    // Execute direct update for i18n columns if there are changes
-    if (hasI18nUpdates && event.metadata.primaryColumns.length > 0) {
-      const primaryColumn = event.metadata.primaryColumns[0];
-      const primaryValue = event.entity[primaryColumn.propertyName];
-
-      if (primaryValue !== undefined) {
-        await event.manager
-          .createQueryBuilder()
-          .update(event.metadata.target)
-          .set(updateValues)
-          .where({ [primaryColumn.propertyName]: primaryValue })
-          .execute();
-      }
-    }
-
-    // Also transform for any other processing
-    const transformed = transformBeforeSave(event.entity);
-    Object.assign(event.entity, transformed);
+    await event.manager
+      .createQueryBuilder()
+      .update(event.metadata.target)
+      .set(updateValues)
+      .where(where)
+      .execute();
   }
 }

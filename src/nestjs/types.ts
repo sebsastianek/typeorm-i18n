@@ -100,3 +100,42 @@ export const I18N_REPOSITORY_TOKEN = 'I18nRepository_';
 export function getI18nRepositoryToken(entity: Function): string {
   return `${I18N_REPOSITORY_TOKEN}${entity.name}`;
 }
+
+/**
+ * Coerce a raw, possibly attacker-controlled language value (from a header,
+ * query param, cookie, JWT claim, etc.) into one of the configured languages.
+ *
+ * - exact (case-insensitive) match wins
+ * - otherwise the base subtag is tried (e.g. "en-US" -> "en")
+ * - otherwise the default language is used
+ *
+ * This guarantees that only a known-safe, configured language ever reaches
+ * I18nRepository.setLanguage(), so a malformed request can neither inject SQL
+ * nor cause a 500 from the repository's validation.
+ *
+ * @internal
+ */
+export function coerceConfiguredLanguage(
+  raw: string | null | undefined,
+  languages: string[],
+  defaultLanguage: string,
+): string {
+  const allowed = languages.map((l) => l.toLowerCase());
+  const fallback = defaultLanguage.toLowerCase();
+
+  if (!raw || typeof raw !== 'string') {
+    return fallback;
+  }
+
+  const lower = raw.toLowerCase();
+  if (allowed.includes(lower)) {
+    return lower;
+  }
+
+  const base = lower.split('-')[0];
+  if (base && allowed.includes(base)) {
+    return base;
+  }
+
+  return fallback;
+}

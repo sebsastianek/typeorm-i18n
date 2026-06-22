@@ -17,7 +17,7 @@
  * ```
  */
 export type I18nValue<TLang extends string, TValue = string> = {
-  [K in TLang]: TValue;
+  [K in TLang]?: TValue;
 };
 
 /**
@@ -33,12 +33,36 @@ export const I18N_LANGUAGE_KEY = Symbol('i18nLanguage');
 export const I18N_TRANSLATIONS_SET_KEY = Symbol('i18nTranslationsSet');
 
 /**
+ * Symbol used to snapshot the single-value properties as they were last loaded
+ * / displayed. On save this lets us detect whether the user edited the
+ * single-value property (e.g. `entity.name = 'x'`) versus the translations
+ * object, so the correct value wins for the current language.
+ */
+export const I18N_SINGLE_SNAPSHOT_KEY = Symbol('i18nSingleSnapshot');
+
+/**
+ * Symbol used to snapshot the translations objects as they were loaded. On save
+ * only the languages that actually changed are written, so a concurrent writer
+ * that updated a different language is not clobbered.
+ */
+export const I18N_TRANSLATIONS_SNAPSHOT_KEY = Symbol('i18nTranslationsSnapshot');
+
+/**
+ * Symbol flag set by I18nRepository when it has already persisted translation
+ * columns for an update, so the subscriber does not write them a second time.
+ */
+export const I18N_SKIP_SUBSCRIBER_UPDATE_KEY = Symbol('i18nSkipSubscriberUpdate');
+
+/**
  * Interface for entities with I18n support.
  * Entities using @I18nColumn will have these internal properties set.
  */
 export interface I18nEntity {
   [I18N_LANGUAGE_KEY]?: string;
-  [I18N_TRANSLATIONS_SET_KEY]?: Set<string>;
+  [I18N_TRANSLATIONS_SET_KEY]?: boolean;
+  [I18N_SINGLE_SNAPSHOT_KEY]?: Record<string, any>;
+  [I18N_TRANSLATIONS_SNAPSHOT_KEY]?: Record<string, Record<string, any>>;
+  [I18N_SKIP_SUBSCRIBER_UPDATE_KEY]?: boolean;
 }
 
 /**

@@ -104,7 +104,17 @@ console.log(products[0].nameTranslations?.en); // "Laptop" (all translations ava
 repo.clearLanguage();  // Revert to default
 ```
 
-> **Note:** TypeScript may show type errors for i18n properties in `where`/`order` clauses since it doesn't know about the language transformation. You can use `as any` or create typed wrappers if needed.
+> **Note:** TypeScript may show type errors for i18n properties in `where`/`order` clauses since it doesn't know about the language transformation. Use the `i18nWhere` helper to keep type-safety without `as any`:
+>
+> ```typescript
+> import { i18nWhere } from '@sebsastianek/typeorm-i18n';
+>
+> const products = await repo.find({
+>   where: i18nWhere<Product>({ name: 'Portátil' }),
+> });
+> ```
+
+> **Language validation:** `setLanguage()` accepts only languages configured for the entity (case-insensitive). An unknown or malformed language throws, rather than silently querying a non-existent column.
 
 ## CRUD Operations
 
@@ -128,6 +138,36 @@ console.log(loaded.nameTranslations);  // { en: 'Laptop', es: 'Portátil', fr: '
 loaded.nameTranslations = { en: 'Gaming Laptop', es: 'Portátil Gaming', fr: 'PC Portable Gaming' };
 await repo.save(loaded);  // I18nRepository handles translation columns automatically
 ```
+
+### Writing with a language context
+
+With a language set, a single scalar value is written to that language's column:
+
+```typescript
+repo.setLanguage('es');
+await repo.save(repo.create({ name: 'Portátil' }));  // writes name_es, leaves name (en) null
+```
+
+`update`, `insert`, and `upsert` also translate. Their criteria and values are
+mapped to the right language column:
+
+```typescript
+repo.setLanguage('es');
+await repo.update({ name: 'Portátil' }, { name: 'Portátil Pro' });  // WHERE name_es = ... SET name_es = ...
+```
+
+> **Precedence:** when a payload contains both the scalar (`name`) and the
+> translations object (`nameTranslations`), the translations object wins for the
+> languages it specifies. This holds for `save` (new entities), `insert`,
+> `upsert`, and `update`:
+>
+> ```typescript
+> // name_en = 'Laptop' (from object, not 'X'); name_es = 'Portátil'
+> await repo.insert({ name: 'X', nameTranslations: { en: 'Laptop', es: 'Portátil' } });
+> ```
+>
+> On a *loaded* entity, editing the single value (`loaded.name = '...'`) persists
+> to the current language — translations are not overwritten for other languages.
 
 ## QueryBuilder
 
@@ -156,6 +196,10 @@ const products = await repo
 - `findOneOrFail`, `findOneByOrFail`
 - `count`, `countBy`
 - `exists`, `existsBy`
+- `save`, `create`, `update`, `insert`, `upsert` (write-side translation)
+
+Relation-nested `where`/`order` (e.g. `where: { category: { name: '...' } }`) is
+translated as well.
 
 **QueryBuilder methods:**
 - `where`, `andWhere`, `orWhere` (object syntax)
@@ -471,11 +515,12 @@ export class CreateProductHandler {
 
 ### `I18nValue<TLang, TValue>`
 
-Type for translation objects:
+Type for translation objects. Keys are optional, so partial translations are
+allowed (a missing language reads back as `undefined`):
 
 ```typescript
 type I18nValue<TLang extends string, TValue = string> = {
-  [K in TLang]: TValue;
+  [K in TLang]?: TValue;
 };
 ```
 

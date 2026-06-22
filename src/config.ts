@@ -6,12 +6,27 @@ import { normalizeLanguageCode, normalizeLanguageCodes } from './language-utils'
 const configCallbacks: Array<() => void> = [];
 
 /**
+ * Callbacks to run when config is reset
+ */
+const resetCallbacks: Array<() => void> = [];
+
+/**
  * Register a callback to be called when setI18nConfig is invoked.
  * Used internally to finalize pending I18n columns.
  * @internal
  */
 export function onI18nConfigSet(callback: () => void): void {
   configCallbacks.push(callback);
+}
+
+/**
+ * Register a callback to be called when resetI18nConfig is invoked.
+ * Used internally to reset the one-shot column finalization state so the
+ * config can be re-established (primarily for tests / multi-init scenarios).
+ * @internal
+ */
+export function onI18nConfigReset(callback: () => void): void {
+  resetCallbacks.push(callback);
 }
 
 /**
@@ -91,8 +106,13 @@ export function getI18nConfig(): Readonly<I18nGlobalConfig> {
 }
 
 /**
- * Reset global I18n configuration to empty
+ * Reset global I18n configuration to empty.
+ * Also resets the one-shot column-finalization state (via registered reset
+ * callbacks) so a subsequent setI18nConfig() can re-generate columns.
  */
 export function resetI18nConfig(): void {
   globalConfig = {};
+  for (const callback of resetCallbacks) {
+    callback();
+  }
 }

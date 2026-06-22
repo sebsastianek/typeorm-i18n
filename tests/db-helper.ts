@@ -19,8 +19,10 @@ export function getDatabaseConfig(dbType?: DatabaseType): DataSourceOptions {
     return {
       ...baseConfig,
       type: 'better-sqlite3',
-      database: process.env.SQLITE_DB || './test.db',
-      dropSchema: true, // Clean database on each run
+      // In-memory per DataSource: isolates each test suite (no shared file),
+      // avoiding cross-suite interference under a shared on-disk database.
+      database: process.env.SQLITE_DB || ':memory:',
+      dropSchema: true,
     } as DataSourceOptions;
   } else if (type === 'postgres') {
     return {

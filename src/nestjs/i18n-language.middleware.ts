@@ -1,6 +1,6 @@
 import { Injectable, NestMiddleware, Inject } from '@nestjs/common';
 import { I18nLanguageService } from './i18n-language.service';
-import { I18nModuleOptions, I18N_MODULE_OPTIONS } from './types';
+import { I18nModuleOptions, I18N_MODULE_OPTIONS, coerceConfiguredLanguage } from './types';
 
 /**
  * Middleware that extracts the language from the request and sets it
@@ -30,17 +30,19 @@ export class I18nLanguageMiddleware implements NestMiddleware {
   ) {}
 
   async use(req: any, _res: any, next: () => void) {
-    let language: string | null = null;
+    let resolved: string | null = null;
 
     // Use custom resolver if provided
     if (this.options.resolveLanguage) {
-      language = await this.options.resolveLanguage(req);
+      resolved = await this.options.resolveLanguage(req);
     }
 
-    // Fallback to default language
-    if (!language) {
-      language = this.options.defaultLanguage;
-    }
+    // Always coerce to a configured language (never trust raw request input).
+    const language = coerceConfiguredLanguage(
+      resolved,
+      this.options.languages,
+      this.options.defaultLanguage,
+    );
 
     this.languageService.setLanguage(language);
 

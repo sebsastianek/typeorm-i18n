@@ -2,8 +2,41 @@ import { getMetadataArgsStorage, Column, ColumnOptions } from 'typeorm';
 import { I18nColumnOptions } from './types';
 import { LANGUAGE_DELIMITER } from './constants';
 import { i18nMetadataStorage } from './metadata';
-import { getI18nConfig, onI18nConfigSet } from './config';
+import { getI18nConfig, onI18nConfigSet, onI18nConfigReset } from './config';
 import { normalizeLanguageCode, normalizeLanguageCodes } from './language-utils';
+
+/**
+ * Column option keys that must NOT be replicated onto generated translation
+ * columns. Replicating these silently corrupts the schema:
+ * - name: would point every language at the same physical column
+ * - primary: would build a composite PK across languages
+ * - unique/generated/asExpression/...: duplicate constraints / generated columns
+ */
+const NON_REPLICATED_COLUMN_OPTION_KEYS = [
+  'name',
+  'primary',
+  'primaryKeyConstraintName',
+  'unique',
+  'generated',
+  'generatedType',
+  'generatedIdentity',
+  'asExpression',
+] as const;
+
+/**
+ * Build the column options for a generated (non-default-language) translation
+ * column from the original column's options. Strips identity/uniqueness/name
+ * options that must not be replicated, and forces the column nullable
+ * (translations may be missing).
+ */
+function buildTranslationColumnOptions(originalOptions: any): any {
+  const cleaned: any = { ...(originalOptions ?? {}) };
+  for (const key of NON_REPLICATED_COLUMN_OPTION_KEYS) {
+    delete cleaned[key];
+  }
+  cleaned.nullable = true;
+  return cleaned;
+}
 
 /**
  * Generates the column name for a specific language translation.
@@ -99,10 +132,7 @@ export function finalizeI18nColumns(): void {
         metadataArgsStorage.columns.push({
           ...originalColumn,
           propertyName: translationPropertyName,
-          options: {
-            ...originalColumn.options,
-            nullable: true,
-          },
+          options: buildTranslationColumnOptions(originalColumn.options),
         });
       }
     }
@@ -160,6 +190,20 @@ export function I18nColumn<T extends string>(
 
     if (!options.type) {
       throw new Error('I18nColumn requires a type to be specified (e.g., "varchar", "text", "int")');
+    }
+
+    // Identity/generated columns cannot be meaningfully translated and would
+    // corrupt the generated per-language columns (composite PK, duplicate
+    // generation). Fail fast rather than silently producing a broken schema.
+    if ((options as any).primary) {
+      throw new Error(
+        `I18nColumn on ${target.constructor.name}.${propertyName} cannot be a primary column.`
+      );
+    }
+    if ((options as any).generated || (options as any).asExpression) {
+      throw new Error(
+        `I18nColumn on ${target.constructor.name}.${propertyName} cannot be a generated column.`
+      );
     }
 
     // Extract i18n-specific options from the original options object
@@ -265,3 +309,7 @@ export function I18nColumn<T extends string>(
 
 // Register callback to finalize pending columns when config is set
 onI18nConfigSet(finalizeI18nColumns);
+
+// Reset the one-shot finalization state when config is reset so columns can be
+// regenerated (primarily for tests / multi-init scenarios).
+onI18nConfigReset(resetI18nColumnsFinalization);

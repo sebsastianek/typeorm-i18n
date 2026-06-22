@@ -1081,7 +1081,7 @@ describe('QueryBuilder and Type Helpers', () => {
       products.forEach((p) => {
         expect(p.isActive).toBe(true);
         expect(p.price).toBeGreaterThan(10);
-        expect(p.nameTranslations?.es.toLowerCase()).toContain('a');
+        expect(p.nameTranslations?.es!.toLowerCase()).toContain('a');
       });
 
       const names = products.map((p) => p.nameTranslations?.es);

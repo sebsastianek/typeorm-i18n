@@ -1,9 +1,12 @@
 {
   "name": "@sebsastianek/typeorm-i18n",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "TypeORM extension for multilingual i18n support with strong typing",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
+  "engines": {
+    "node": ">=16"
+  },
   "exports": {
     ".": {
       "types": "./dist/index.d.ts",

@@ -15,14 +15,22 @@ export type {
   I18nColumnMetadata,
   I18nEntity,
   TranslationsKey,
+  I18nWhere,
 } from './types';
 export type { I18nGlobalConfig } from './config';
+
+// Export type-safe where helpers (avoid `as any` in find/where clauses)
+export { i18nWhere, i18nWhereMany } from './types';
 
 // Export symbols
 export { I18N_LANGUAGE_KEY } from './types';
 
 // Export decorator
-export { I18nColumn, getTranslationColumnName } from './decorator';
+export {
+  I18nColumn,
+  getTranslationColumnName,
+  finalizeI18nColumns,
+} from './decorator';
 
 // Export configuration
 export { setI18nConfig, getI18nConfig, resetI18nConfig } from './config';

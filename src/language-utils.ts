@@ -18,6 +18,37 @@ export function normalizeLanguageCode(language: string): string {
 }
 
 /**
+ * Safe BCP-47-ish language code shape. Used as a defense-in-depth guard so that
+ * a language code can never carry SQL metacharacters into a generated column
+ * identifier (column names are built as `${property}_${language}` and end up in
+ * non-parameterized ORDER BY / GROUP BY / SELECT positions).
+ *
+ * Accepts: 'en', 'es', 'zh', 'pt-br', 'en-us', 'sr-latn-rs' (lowercase, digits, hyphen-separated subtags).
+ * Rejects: anything containing spaces, quotes, parentheses, semicolons, commas, etc.
+ */
+export const LANGUAGE_CODE_PATTERN = /^[a-z]{2,8}(?:-[a-z0-9]{2,8})*$/;
+
+/**
+ * Returns true if the (already normalized) language code is structurally safe.
+ */
+export function isValidLanguageCode(language: string): boolean {
+  return LANGUAGE_CODE_PATTERN.test(language);
+}
+
+/**
+ * Throws if the language code is not structurally safe.
+ * @internal
+ */
+export function assertValidLanguageCode(language: string): void {
+  if (!isValidLanguageCode(language)) {
+    throw new Error(
+      `Invalid language code "${language}". Language codes must be lowercase letters/digits ` +
+      'separated by hyphens (e.g. "en", "pt-br").'
+    );
+  }
+}
+
+/**
  * Normalizes an array of language codes to lowercase.
  *
  * @param languages - Array of language codes to normalize

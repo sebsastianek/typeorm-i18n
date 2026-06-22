@@ -191,7 +191,7 @@ describe('Full Stack Tests with Real Database', () => {
         .getMany();
 
       expect(laptops.length).toBeGreaterThan(0);
-      expect(laptops[0].nameTranslations?.en.toLowerCase()).toContain('laptop');
+      expect(laptops[0].nameTranslations?.en!.toLowerCase()).toContain('laptop');
     });
 
     it('should support search in Spanish translation columns', async () => {
@@ -375,8 +375,8 @@ describe('Full Stack Tests with Real Database', () => {
         expect(doc?.binaryDataTranslations?.en).toBeInstanceOf(Buffer);
         expect(doc?.binaryDataTranslations?.es).toBeInstanceOf(Buffer);
 
-        expect(doc?.binaryDataTranslations?.en.toString()).toBe('English binary data');
-        expect(doc?.binaryDataTranslations?.es.toString()).toBe('Datos binarios en español');
+        expect(doc?.binaryDataTranslations?.en!.toString()).toBe('English binary data');
+        expect(doc?.binaryDataTranslations?.es!.toString()).toBe('Datos binarios en español');
       });
 
       it('should update Buffer data correctly', async () => {
@@ -395,8 +395,8 @@ describe('Full Stack Tests with Real Database', () => {
         await documentRepo.save(doc!);
         const updated = await documentRepo.findOne({ where: { id: doc!.id } });
 
-        expect(updated?.binaryDataTranslations?.en.toString()).toBe('Updated English binary');
-        expect(updated?.binaryDataTranslations?.es.toString()).toBe('Binario español actualizado');
+        expect(updated?.binaryDataTranslations?.en!.toString()).toBe('Updated English binary');
+        expect(updated?.binaryDataTranslations?.es!.toString()).toBe('Binario español actualizado');
       });
     });
   }
